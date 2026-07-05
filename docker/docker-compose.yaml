@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  lianyu-ai-core:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: lianyu-ai-core
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+      - ../character/characters:/app/character/characters
+      - ../prompt/templates:/app/prompt/templates
+    environment:
+      - APP_DEBUG=false
+      - APP_LOG_LEVEL=INFO

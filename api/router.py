@@ -1,0 +1,11 @@
+"""API 路由聚合。
+
+将所有子路由汇总到同一个 FastAPI APIRouter。
+"""
+
+from fastapi import APIRouter
+
+from api.v1.health import router as health_router
+
+api_router = APIRouter(prefix="/api")
+api_router.include_router(health_router, prefix="/v1")
