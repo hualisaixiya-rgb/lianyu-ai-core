@@ -66,6 +66,20 @@ class UserRepository:
 
             return user
 
+    @staticmethod
+    async def get_all_users() -> list[User]:
+        """获取所有注册用户。
+
+        Returns:
+            User 列表
+        """
+        from sqlalchemy import select
+        from database.models.user import User as U
+        async with AsyncSessionLocal.get_session() as session:
+            stmt = select(U)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
 
 class MessageRepository:
     """消息仓库。

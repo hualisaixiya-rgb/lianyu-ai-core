@@ -135,6 +135,13 @@ class TelegramBot:
 
         logger.debug(f"收到消息: [{user_id}] {username}: {text}")
 
+        # 更新 Agent 活跃时间
+        from agent.state import AgentStateRepository
+        try:
+            await AgentStateRepository.update_user_active("telegram", user_id)
+        except Exception:
+            pass  # Agent 未初始化时静默跳过
+
         # 发送"正在输入..."状态
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id,

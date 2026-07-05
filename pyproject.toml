@@ -74,6 +74,7 @@ packages = [
     "tools",
     "utils",
     "api",
+    "agent",
 ]
 
 [tool.ruff]
