@@ -43,6 +43,22 @@ for _name, _impl in _patches.items():
     if not hasattr(_tf_pt, _name):
         setattr(_tf_pt, _name, _impl)
 
+# 修复 generate() —— coqui XTTS GPT2InferenceModel 不兼容新版 transformers
+from transformers.generation import utils as _gen_utils
+_orig_validate = _gen_utils.GenerationMixin._validate_model_class
+def _patched_validate(self):
+    pass
+_gen_utils.GenerationMixin._validate_model_class = _patched_validate
+
+# 补 generation_config —— 旧模型没有此属性
+_orig_generate = _gen_utils.GenerationMixin.generate
+def _patched_generate(self, *args, **kwargs):
+    from transformers import GenerationConfig
+    if self.generation_config is None:
+        self.generation_config = GenerationConfig()
+    return _orig_generate(self, *args, **kwargs)
+_gen_utils.GenerationMixin.generate = _patched_generate
+
 # 全局模型单例
 _xtts_model = None
 _xtts_device = None
