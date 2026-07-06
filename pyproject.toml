@@ -45,6 +45,10 @@ dependencies = [
     "soundfile>=0.12.1",
     "faster-whisper>=1.2.1",
     "edge-tts>=7.2.8",
+    # XTTS 兼容版本（锁定防止 uv 升级到不兼容版本）
+    "transformers==4.38.0",
+    "tokenizers>=0.14,<0.19",
+    "huggingface-hub>=0.19,<1.0",
 ]
 
 [dependency-groups]
@@ -60,10 +64,8 @@ voice = [
     "edge-tts>=6.1.0",
 ]
 xtts = [
-    # XTTS 依赖链复杂（torch + numba + llvmlite），
-    # 通过 uv sync --group xtts 安装后，
-    # 需手动安装 coqui-tts: uv pip install coqui-tts
-    "torch>=2.0.0",
+    "torch>=2.5.0,<2.6.0",
+    "torchaudio>=2.5.0,<2.6.0",
 ]
 
 [build-system]
