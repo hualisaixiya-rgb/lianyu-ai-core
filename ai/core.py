@@ -250,6 +250,8 @@ class AICore:
     def _build_system_prompt(self, memory_context: str = "") -> str:
         """构建完整的 System Prompt。
 
+        结构顺序：[1]身份锁 [2]行为 [3]输出 [4]情绪 [5]角色 [6]记忆
+
         Args:
             memory_context: 记忆上下文（来自 MemoryManager）
 
@@ -258,16 +260,12 @@ class AICore:
         """
         identity = self._character.to_identity()
         now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-        system_prompt = self.prompt_manager.render(
+        return self.prompt_manager.render(
             "system",
             identity=identity,
             current_time=now,
+            memory_context=memory_context,
         )
-
-        if memory_context:
-            system_prompt += "\n\n" + memory_context
-
-        return system_prompt
 
     async def _extract_memories_async(
         self, context: ChatContext, ai_reply: str
