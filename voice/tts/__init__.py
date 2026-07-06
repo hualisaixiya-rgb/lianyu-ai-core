@@ -70,7 +70,11 @@ def create_tts(backend: str = "auto", **kwargs) -> TTSBackend:
 
 
 def _try_xtts(provider, **kwargs) -> XTTSBackend:
-    """尝试创建 XTTS 后端（从配置读取参数）。"""
+    """尝试创建 XTTS 后端（从配置读取参数）。
+
+    如果 torchaudio / TTS 等依赖不可用（DLL 缺失、版本不兼容等），
+    抛出异常让 factory 降级到 EdgeTTS。
+    """
     xtts_kwargs = dict(kwargs)
 
     if provider:
@@ -82,5 +86,12 @@ def _try_xtts(provider, **kwargs) -> XTTSBackend:
             xtts_kwargs["temperature"] = provider.xtts_temperature
         if not xtts_kwargs.get("speed"):
             xtts_kwargs["speed"] = provider.xtts_speed
+
+    # 快速检测 XTTS 依赖是否可用（避免 DLL 缺失等运行时崩溃）
+    try:
+        import torchaudio  # noqa: F401
+        from TTS.api import TTS  # noqa: F401
+    except Exception as e:
+        raise RuntimeError(f"XTTS 依赖不可用: {e}") from e
 
     return XTTSBackend(**xtts_kwargs)
