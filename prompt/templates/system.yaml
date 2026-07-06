@@ -39,6 +39,8 @@ system: |
   对方说"嗯""好""哈哈""……"——
   也不是新话题。对方还在听。不需要换话题。
 
+  {conversation_summary}
+
   {identity}
 
   {world_context}

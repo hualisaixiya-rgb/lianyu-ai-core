@@ -49,12 +49,21 @@ class ChatResponse:
 
 @dataclass
 class ConversationSession:
-    """一个用户的对话会话（内存缓存）。"""
+    """一个用户的对话会话（内存缓存）。
+
+    Attributes:
+        messages: 当前窗口内的对话历史（最近 N 条）
+        loaded_from_db: 是否已从数据库加载
+        summary: 滚动累积的对话摘要（结构化格式）
+        pending_count: 自上次摘要后新增的消息数
+    """
 
     platform: str
     platform_user_id: str
     messages: list[dict[str, str]] = field(default_factory=list)
     loaded_from_db: bool = False
+    summary: str = ""
+    pending_count: int = 0
 
 
 class AICore:
@@ -165,8 +174,8 @@ class AICore:
             top_k=5,
         )
 
-        # 5. 构建系统 Prompt（含记忆）
-        system_prompt = self._build_system_prompt(memory_context)
+        # 5. 构建系统 Prompt（含摘要 + 记忆）
+        system_prompt = self._build_system_prompt(memory_context, session.summary)
 
         # 6. 调用 LLM
         try:
@@ -194,6 +203,13 @@ class AICore:
 
         # 8. 更新会话缓存（用纯净版本）
         session.messages.append({"role": "assistant", "content": clean_reply})
+
+        # 8.5. 追踪待摘要消息数，超过阈值触发滚动摘要
+        session.pending_count += 2
+        if session.pending_count >= 12 and len(session.messages) >= 8:
+            asyncio.create_task(
+                self._summarize_async(context, session)
+            )
 
         # 9. 异步提取记忆（不阻塞本次回复）
         asyncio.create_task(
@@ -250,13 +266,17 @@ class AICore:
             )
         return self._sessions[session_key]
 
-    def _build_system_prompt(self, memory_context: str = "") -> str:
+    def _build_system_prompt(
+        self, memory_context: str = "", conversation_summary: str = ""
+    ) -> str:
         """构建完整的 System Prompt。
 
-        结构：[1]身份 [2]行为 [3]输出 [4]情绪 [5]角色 [6]世界 [7]记忆
+        结构：[1]身份 [2]行为 [3]情绪优先 [4]输出 [5]情绪 [6]连续性
+        [角色] [世界] [对话摘要] [记忆] [时间]
 
         Args:
-            memory_context: 记忆上下文（来自 MemoryManager）
+            memory_context: 记忆上下文
+            conversation_summary: 滚动对话摘要
 
         Returns:
             完整的 System Prompt 字符串
@@ -265,6 +285,12 @@ class AICore:
 
         identity = self._character.to_identity()
         world_context = get_world_context()
+
+        # 格式化摘要
+        summary_block = ""
+        if conversation_summary:
+            summary_block = f"你们之前聊过：\n{conversation_summary}"
+
         now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
         return self.prompt_manager.render(
             "system",
@@ -272,7 +298,36 @@ class AICore:
             current_time=now,
             world_context=world_context,
             memory_context=memory_context,
+            conversation_summary=summary_block,
         )
+
+    async def _summarize_async(
+        self, context: ChatContext, session: ConversationSession
+    ) -> None:
+        """异步滚动摘要：将窗口外的旧消息压缩为结构化摘要。
+
+        取 session.messages 最旧的 8 条，调用 LLM 生成/合并摘要，
+        然后从 session.messages 中移除已摘要的消息。
+        """
+        try:
+            from memory.summarizer import ConversationSummarizer
+
+            summarizer = ConversationSummarizer()
+            batch = session.messages[:8]
+            new_summary = await summarizer.summarize(
+                messages=batch,
+                existing_summary=session.summary,
+                provider=self.provider,
+            )
+            session.summary = new_summary
+            session.messages = session.messages[8:]
+            session.pending_count = 0
+            logger.info(
+                f"对话摘要更新: [{context.platform}:{context.platform_user_id}] "
+                f"摘要={len(new_summary)}字 | 剩余消息={len(session.messages)}条"
+            )
+        except Exception as e:
+            logger.warning(f"后台摘要失败: {e}")
 
     async def _extract_memories_async(
         self, context: ChatContext, ai_reply: str
