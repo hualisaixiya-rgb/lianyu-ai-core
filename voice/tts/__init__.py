@@ -43,15 +43,20 @@ def create_tts(backend: str = "auto", **kwargs) -> TTSBackend:
     from config.settings import get_settings
     settings = get_settings()
     provider = getattr(settings, "tts", None)
-    if provider and provider.provider and provider.provider != "auto":
-        backend = provider.provider
+
+    # 确定是否尝试 XTTS
+    want_xtts = False
+    if provider and provider.provider == "xtts":
+        want_xtts = True
+    if kwargs.get("speaker_wav") or (provider and provider.xtts_speaker_wav):
+        want_xtts = True
 
     # 构建降级链
-    chain = [
-        ("XTTS", lambda: _try_xtts(provider, **kwargs)),
-        ("EdgeTTS", lambda: EdgeTTSBackend(**kwargs)),
-        ("SAPI", lambda: SAPITTSBackend()),
-    ]
+    chain = []
+    if want_xtts:
+        chain.append(("XTTS", lambda: _try_xtts(provider, **kwargs)))
+    chain.append(("EdgeTTS", lambda: EdgeTTSBackend(**kwargs)))
+    chain.append(("SAPI", lambda: SAPITTSBackend()))
 
     for name, factory in chain:
         try:
