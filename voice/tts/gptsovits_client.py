@@ -41,7 +41,7 @@ class GPTSoVITSClient(TTSBackend):
         base_url: str = "http://localhost:9880",
         speaker_dir: str = "voice/gptsovits",
         default_emotion: str = "neutral",
-        timeout: float = 30.0,
+        timeout: float = 120.0,
     ) -> None:
         """初始化 GPT-SoVITS 客户端。
 

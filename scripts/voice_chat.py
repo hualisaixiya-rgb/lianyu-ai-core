@@ -46,7 +46,7 @@ def print_banner():
     print("=" * 50)
     print(f"  模型: {settings.ai.model}")
     print(f"  STT: faster-whisper (small)")
-    print(f"  TTS: auto (edge-tts → SAPI fallback)")
+    print(f"  TTS: GPT-SoVITS (音色克隆) → EdgeTTS fallback")
     print()
     print("  [Enter] 开始录音（5秒）")
     print("  [q + Enter] 退出")
