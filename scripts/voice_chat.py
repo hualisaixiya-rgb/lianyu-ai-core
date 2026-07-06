@@ -29,7 +29,7 @@ from voice.stt import WhisperSTT
 from voice.tts import create_tts
 from voice.player import play_audio
 from utils.logger import setup_logger, get_logger
-from utils.text_cleaner import clean_for_tts
+from utils.response_renderer import render_for_tts
 
 
 # 输出目录
@@ -119,7 +119,7 @@ async def main():
 
         # TTS（先清洗括号内容，避免朗读动作描写）
         print("[合成语音...]")
-        clean_text = clean_for_tts(response.content)
+        clean_text = render_for_tts(response.content)
         output_path = OUTPUT_DIR / f"output_{turn:03d}.mp3"
         await tts.synthesize(clean_text, output_path)
 
