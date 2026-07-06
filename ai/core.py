@@ -181,16 +181,19 @@ class AICore:
             logger.error(f"LLM 调用失败: {e}")
             return ChatResponse(content="……")
 
-        # 7. 保存 AI 回复
+        # 7. 清洗括号 → 保存纯净版本，打破括号自循环
+        from utils.response_renderer import render_for_storage
+        clean_reply = render_for_storage(reply)
+
         await MessageRepository.save(
             platform=context.platform,
             platform_user_id=context.platform_user_id,
             role="assistant",
-            content=reply,
+            content=clean_reply,
         )
 
-        # 8. 更新会话缓存
-        session.messages.append({"role": "assistant", "content": reply})
+        # 8. 更新会话缓存（用纯净版本）
+        session.messages.append({"role": "assistant", "content": clean_reply})
 
         # 9. 异步提取记忆（不阻塞本次回复）
         asyncio.create_task(

@@ -49,6 +49,25 @@ def render_for_tts(text: str) -> str:
     return text.strip()
 
 
+def render_for_storage(text: str) -> str:
+    """数据库存储渲染：去除括号后保存。
+
+    括号动作描写进入 DB → 下次加载为历史上下文 →
+    模型看到括号风格 → 继续生成括号 → 形成不可控的自循环。
+    此函数在保存前清洗，打破循环。
+
+    Args:
+        text: AICore.chat() 原始输出
+
+    Returns:
+        去除括号后的纯文本
+    """
+    text = re.sub(r"（[^）]*）", "", text)
+    text = re.sub(r"\([^)]*\)", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def render_for_api(text: str) -> dict[str, str]:
     """API 渲染：返回所有格式，供前端选择。
 
