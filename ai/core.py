@@ -253,7 +253,7 @@ class AICore:
     def _build_system_prompt(self, memory_context: str = "") -> str:
         """构建完整的 System Prompt。
 
-        结构顺序：[1]身份锁 [2]行为 [3]输出 [4]情绪 [5]角色 [6]记忆
+        结构：[1]身份 [2]行为 [3]输出 [4]情绪 [5]角色 [6]世界 [7]记忆
 
         Args:
             memory_context: 记忆上下文（来自 MemoryManager）
@@ -261,12 +261,16 @@ class AICore:
         Returns:
             完整的 System Prompt 字符串
         """
+        from utils.world_state import get_world_context
+
         identity = self._character.to_identity()
+        world_context = get_world_context()
         now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
         return self.prompt_manager.render(
             "system",
             identity=identity,
             current_time=now,
+            world_context=world_context,
             memory_context=memory_context,
         )
 
