@@ -95,6 +95,12 @@ class TTSSettings(BaseSettings):
     xtts_speed: float = 1.0
     """XTTS 语速 (1.0 正常, <1 慢, >1 快)"""
 
+    gptsovits_url: str = ""
+    """GPT-SoVITS API 地址，如 http://localhost:9880"""
+
+    gptsovits_speaker_dir: str = "voice/gptsovits"
+    """GPT-SoVITS 参考音频目录（含不同情绪的 wav）"""
+
 
 class Settings(BaseSettings):
     """全局配置聚合类。

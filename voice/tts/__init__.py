@@ -1,11 +1,12 @@
 """TTS 工厂 —— 自动选择后端 + 降级链。
 
-优先级：xtts → edge → sapi
+降级链：gptsovits → xtts → edge → sapi
 
 用法：
     from voice.tts import create_tts
-    tts = create_tts()                 # auto
-    tts = create_tts(backend="xtts", speaker_wav="voice/erii.wav")
+    tts = create_tts()                          # auto
+    tts = create_tts(backend="gptsovits")       # GPT-SoVITS 音色克隆
+    tts = create_tts(backend="edge")            # EdgeTTS
 """
 
 from loguru import logger
@@ -13,48 +14,58 @@ from loguru import logger
 from voice.tts.base import TTSBackend
 from voice.tts.edge_tts import EdgeTTSBackend
 from voice.tts.sapi import SAPITTSBackend
-from voice.tts.xtts import XTTSBackend
 
 
 def create_tts(backend: str = "auto", **kwargs) -> TTSBackend:
     """TTS 工厂函数 —— 自动降级。
 
-    降级链：xtts → edge → sapi
+    降级链：gptsovits → xtts → edge → sapi
 
     Args:
-        backend: "auto" / "xtts" / "edge" / "sapi"
+        backend: "auto" / "gptsovits" / "xtts" / "edge" / "sapi"
         **kwargs: 传递给具体后端的参数
 
     Returns:
         TTSBackend 实例
-
-    Raises:
-        RuntimeError: 所有后端都不可用
     """
     # 明确指定后端
+    if backend == "gptsovits":
+        from voice.tts.gptsovits_client import GPTSoVITSClient
+        return GPTSoVITSClient(**kwargs)
     if backend == "xtts":
+        from voice.tts.xtts import XTTSBackend
         return XTTSBackend(**kwargs)
     if backend == "edge":
         return EdgeTTSBackend(**kwargs)
     if backend == "sapi":
         return SAPITTSBackend()
 
-    # auto: 读取配置或依次尝试
+    # auto: 读配置
     from config.settings import get_settings
     settings = get_settings()
     provider = getattr(settings, "tts", None)
 
-    # 确定是否尝试 XTTS
-    want_xtts = False
-    if provider and provider.provider == "xtts":
-        want_xtts = True
-    if kwargs.get("speaker_wav") or (provider and provider.xtts_speaker_wav):
-        want_xtts = True
-
     # 构建降级链
     chain = []
+
+    # GPT-SoVITS（如果配置了 URL）
+    want_gptsovits = (
+        (provider and provider.gptsovits_url) or
+        kwargs.get("base_url")
+    )
+    if want_gptsovits:
+        chain.append(("GPT-SoVITS", lambda: _try_gptsovits(provider, **kwargs)))
+
+    # XTTS（如果配置了 speaker_wav）
+    want_xtts = (
+        (provider and provider.provider == "xtts") or
+        kwargs.get("speaker_wav") or
+        (provider and provider.xtts_speaker_wav)
+    )
     if want_xtts:
         chain.append(("XTTS", lambda: _try_xtts(provider, **kwargs)))
+
+    # EdgeTTS（默认保底）
     chain.append(("EdgeTTS", lambda: EdgeTTSBackend(**kwargs)))
     chain.append(("SAPI", lambda: SAPITTSBackend()))
 
@@ -69,25 +80,30 @@ def create_tts(backend: str = "auto", **kwargs) -> TTSBackend:
     raise RuntimeError("所有 TTS 后端均不可用")
 
 
-def _try_xtts(provider, **kwargs) -> XTTSBackend:
-    """尝试创建 XTTS 后端（从配置读取参数）。
+def _try_gptsovits(provider, **kwargs):
+    """尝试创建 GPT-SoVITS 客户端。"""
+    from voice.tts.gptsovits_client import GPTSoVITSClient
+    gs_kwargs = {}
+    if provider:
+        if provider.gptsovits_url:
+            gs_kwargs["base_url"] = provider.gptsovits_url
+        if provider.gptsovits_speaker_dir:
+            gs_kwargs["speaker_dir"] = provider.gptsovits_speaker_dir
+    gs_kwargs.update(kwargs)
+    return GPTSoVITSClient(**gs_kwargs)
 
-    如果 torchaudio / TTS 等依赖不可用（DLL 缺失、版本不兼容等），
-    抛出异常让 factory 降级到 EdgeTTS。
-    """
+
+def _try_xtts(provider, **kwargs):
+    """尝试创建 XTTS 后端。"""
+    from voice.tts.xtts import XTTSBackend
     xtts_kwargs = dict(kwargs)
-
     if provider:
         if not xtts_kwargs.get("speaker_wav") and provider.xtts_speaker_wav:
             xtts_kwargs["speaker_wav"] = provider.xtts_speaker_wav
-        if not xtts_kwargs.get("language"):
-            xtts_kwargs["language"] = provider.xtts_language
-        if not xtts_kwargs.get("temperature"):
-            xtts_kwargs["temperature"] = provider.xtts_temperature
-        if not xtts_kwargs.get("speed"):
-            xtts_kwargs["speed"] = provider.xtts_speed
+        xtts_kwargs.setdefault("language", provider.xtts_language)
+        xtts_kwargs.setdefault("temperature", provider.xtts_temperature)
+        xtts_kwargs.setdefault("speed", provider.xtts_speed)
 
-    # 快速检测 XTTS 依赖是否可用（避免 DLL 缺失等运行时崩溃）
     try:
         import torchaudio  # noqa: F401
         from TTS.api import TTS  # noqa: F401
