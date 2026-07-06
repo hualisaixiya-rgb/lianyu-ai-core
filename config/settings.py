@@ -75,6 +75,27 @@ class CharacterSettings(BaseSettings):
     """当前加载的角色名，对应 character/characters/ 目录下的 YAML 文件名。"""
 
 
+class TTSSettings(BaseSettings):
+    """TTS 语音合成配置。"""
+
+    model_config = SettingsConfigDict(env_prefix="TTS_")
+
+    provider: str = "auto"
+    """TTS 后端: auto / xtts / edge / sapi"""
+
+    xtts_speaker_wav: str = ""
+    """XTTS 参考音频路径（音色克隆源）"""
+
+    xtts_language: str = "zh-cn"
+    """XTTS 合成语言"""
+
+    xtts_temperature: float = 0.65
+    """XTTS 合成温度 (0-1)"""
+
+    xtts_speed: float = 1.0
+    """XTTS 语速 (1.0 正常, <1 慢, >1 快)"""
+
+
 class Settings(BaseSettings):
     """全局配置聚合类。
 
@@ -93,6 +114,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = DatabaseSettings()
     app: AppSettings = AppSettings()
     character: CharacterSettings = CharacterSettings()
+    tts: TTSSettings = TTSSettings()
 
 
 @lru_cache
