@@ -16,6 +16,9 @@ from loguru import logger
 class TTSBackend(ABC):
     """TTS 后端抽象基类。"""
 
+    # 是否需要外部播放器播放文件（SAPI 自己播放，不需要）
+    needs_playback: bool = True
+
     @abstractmethod
     async def synthesize(self, text: str, output_path: str | Path) -> Path:
         """将文本合成语音并保存为文件。
@@ -137,16 +140,82 @@ class XTTSBackend(TTSBackend):
         return output_path
 
 
-def create_tts(backend: str = "edge", **kwargs) -> TTSBackend:
-    """TTS 工厂函数。
+class SAPITTSBackend(TTSBackend):
+    """Windows SAPI TTS —— 系统内置，零依赖。
+
+    使用 Windows Speech API (SAPI5) 直接朗读文本。
+    无需网络、无需 API Key、无需安装任何包。
+    """
+
+    needs_playback = False  # SAPI 自己播放，不需要外部播放器
+
+    def __init__(self) -> None:
+        """初始化 SAPI TTS。"""
+        logger.info("SAPI TTS 初始化")
+
+    async def synthesize(self, text: str, output_path: str | Path) -> Path:
+        """使用 SAPI 朗读文本。
+
+        注意：SAPI 直接通过扬声器朗读，不生成音频文件。
+        output_path 仅用于标记，实际不写入。
+        """
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._speak_sapi, text)
+        return Path(output_path)
+
+    @staticmethod
+    def _speak_sapi(text: str) -> None:
+        """调用 Windows SAPI 朗读。"""
+        try:
+            import win32com.client
+            speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            speaker.Speak(text)
+            logger.debug(f"SAPI 朗读完成 ({len(text)} 字)")
+        except ImportError:
+            logger.error("需要安装 pywin32: uv pip install pywin32")
+            raise
+        except Exception as e:
+            logger.error(f"SAPI 朗读失败: {e}")
+            raise
+
+
+def create_tts(backend: str = "auto", **kwargs) -> TTSBackend:
+    """TTS 工厂函数 —— 自动 fallback。
+
+    优先级：edge → sapi
 
     Args:
-        backend: "edge" 或 "xtts"
+        backend: "edge" / "xtts" / "sapi" / "auto"
+                 "auto" 会依次尝试 edge → sapi
         **kwargs: 传递给具体后端的参数
 
     Returns:
         TTSBackend 实例
+
+    Raises:
+        RuntimeError: 所有后端都不可用
     """
     if backend == "xtts":
         return XTTSBackend(**kwargs)
-    return EdgeTTSBackend(**kwargs)
+    if backend == "edge":
+        return EdgeTTSBackend(**kwargs)
+    if backend == "sapi":
+        return SAPITTSBackend()
+
+    # auto: 依次尝试
+    backends = [
+        ("edge", lambda: EdgeTTSBackend(**kwargs)),
+        ("sapi", lambda: SAPITTSBackend()),
+    ]
+
+    for name, factory in backends:
+        try:
+            instance = factory()
+            logger.info(f"TTS 后端选择: {name}")
+            return instance
+        except Exception as e:
+            logger.warning(f"TTS 后端 {name} 不可用: {e}")
+
+    raise RuntimeError("没有可用的 TTS 后端")

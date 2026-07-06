@@ -45,7 +45,7 @@ def print_banner():
     print("=" * 50)
     print(f"  模型: {settings.ai.model}")
     print(f"  STT: faster-whisper (small)")
-    print(f"  TTS: edge-tts (zh-CN-XiaoxiaoNeural)")
+    print(f"  TTS: auto (edge-tts → SAPI fallback)")
     print()
     print("  [Enter] 开始录音（5秒）")
     print("  [q + Enter] 退出")
@@ -70,7 +70,7 @@ async def main():
     print("初始化中...")
     core = AICore()
     stt = WhisperSTT(model_size="small", device="cpu", compute_type="int8")
-    tts = create_tts(backend="edge")
+    tts = create_tts(backend="auto")  # edge → sapi 自动降级
     recorder = Recorder()
     print("初始化完成！")
     print_banner()
@@ -121,8 +121,9 @@ async def main():
         output_path = OUTPUT_DIR / f"output_{turn:03d}.mp3"
         await tts.synthesize(response.content, output_path)
 
-        # 播放
-        play_audio(output_path)
+        # 播放（SAPI 自己播放，不需要外部播放器）
+        if tts.needs_playback:
+            play_audio(output_path)
 
         turn += 1
         print()
