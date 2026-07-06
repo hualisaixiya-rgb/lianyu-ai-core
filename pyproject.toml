@@ -46,6 +46,11 @@ dependencies = [
 
     # --- 工具 ---
     "python-dotenv>=1.0.1",
+    "numpy>=1.26.0",
+
+    # --- 语音（基础依赖） ---
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.1",
 ]
 
 [dependency-groups]
@@ -55,6 +60,10 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+]
+voice = [
+    "faster-whisper>=1.0.0",
+    "edge-tts>=6.1.0",
 ]
 
 [build-system]
@@ -75,6 +84,7 @@ packages = [
     "utils",
     "api",
     "agent",
+    "voice",
 ]
 
 [tool.ruff]
