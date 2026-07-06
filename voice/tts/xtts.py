@@ -17,6 +17,32 @@ from loguru import logger
 
 from voice.tts.base import TTSBackend
 
+# ================================================================
+# coqui-tts 兼容补丁 —— 注入新版 transformers 已删除的旧 API
+# ================================================================
+import torch
+from transformers.utils import import_utils as _tf
+
+# 缺失函数补丁列表
+_patches = {
+    "is_torch_greater_or_equal": lambda v, torch_version=None: torch.__version__ >= v,
+    "isin_mps_friendly": lambda elements, test_elements, assume_unique=False, invert=False: torch.isin(elements, test_elements, assume_unique=assume_unique),
+    "is_torchcodec_available": lambda: False,
+    "is_torchaudio_available": lambda: True,
+    "is_vision_available": lambda: False,
+    "is_speech_available": lambda: False,
+}
+
+for _name, _impl in _patches.items():
+    if not hasattr(_tf, _name):
+        setattr(_tf, _name, _impl)
+
+# 同时修复 transformers.pytorch_utils（TTS 深层导入用此路径）
+from transformers import pytorch_utils as _tf_pt
+for _name, _impl in _patches.items():
+    if not hasattr(_tf_pt, _name):
+        setattr(_tf_pt, _name, _impl)
+
 # 全局模型单例
 _xtts_model = None
 _xtts_device = None
