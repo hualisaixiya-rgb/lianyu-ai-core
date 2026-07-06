@@ -70,7 +70,7 @@ class GPTSoVITSClient(TTSBackend):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"{self.base_url}/health",
+                    f"{self.base_url}/docs",
                     timeout=aiohttp.ClientTimeout(total=3),
                 ) as resp:
                     return resp.status == 200
@@ -96,11 +96,6 @@ class GPTSoVITSClient(TTSBackend):
         Raises:
             RuntimeError: 服务不可用或合成失败
         """
-        if not self._available:
-            if not await self._check_health():
-                raise RuntimeError(f"GPT-SoVITS 服务不可达: {self.base_url}")
-            self._available = True
-
         emotion = emotion or self.default_emotion
         ref_file = EMOTION_FILES.get(emotion, EMOTION_FILES["neutral"])
         ref_path = self.speaker_dir / ref_file
