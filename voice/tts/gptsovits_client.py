@@ -117,11 +117,15 @@ class GPTSoVITSClient(TTSBackend):
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # VSC 语音风格预处理
+        from voice.vsc import apply_style
+        styled_text, styled_prompt = apply_style(text, "eri")
+
         payload = {
-            "text": text,
+            "text": styled_text,
             "text_lang": "zh",
             "ref_audio_path": str(ref_path.resolve()),
-            "prompt_text": "",  # GPT-SoVITS v2 可为空
+            "prompt_text": styled_prompt,
             "prompt_lang": "zh",
             "top_k": 5,
             "top_p": 0.8,
