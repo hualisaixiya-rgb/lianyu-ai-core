@@ -1,21 +1,16 @@
 """GPT-SoVITS HTTP 客户端。
 
 通过 HTTP API 调用独立运行的 GPT-SoVITS 服务。
-GPT-SoVITS 运行在独立 conda 环境中，不影响当前 .venv。
-
-用法:
-    client = GPTSoVITSClient(base_url="http://localhost:9880")
-    await client.synthesize("你好", "data/output.wav", emotion="calm")
-
-情绪控制: 不同情绪使用不同的参考音频文件
-    - neutral: 默认参考音频
-    - happy / sad / calm: 对应情绪的参考音频
+支持长文本自动拆句 + 音频拼接。
 """
 
+import re
+import tempfile
 from pathlib import Path
 
 import aiohttp
 from loguru import logger
+from pydub import AudioSegment
 
 from voice.tts.base import TTSBackend
 
@@ -28,54 +23,30 @@ EMOTION_FILES = {
     "calm": "speaker_calm.wav",
 }
 
+# 每句最大字数（超出则拆分）
+MAX_CHARS_PER_SENTENCE = 30
+
 
 class GPTSoVITSClient(TTSBackend):
-    """GPT-SoVITS HTTP API 客户端。
-
-    连接独立部署的 GPT-SoVITS API 服务，实现音色克隆 + 情绪 TTS。
-    服务不可用时自动抛异常，由工厂函数降级到 EdgeTTS。
-    """
+    """GPT-SoVITS HTTP API 客户端。"""
 
     def __init__(
         self,
         base_url: str = "http://localhost:9880",
         speaker_dir: str = "voice/gptsovits",
         default_emotion: str = "neutral",
-        timeout: float = 120.0,
+        timeout: float = 180.0,
     ) -> None:
-        """初始化 GPT-SoVITS 客户端。
-
-        Args:
-            base_url: GPT-SoVITS API 地址
-            speaker_dir: 参考音频目录（含不同情绪的 wav）
-            default_emotion: 默认情绪
-            timeout: HTTP 超时秒数
-        """
         self.base_url = base_url.rstrip("/")
         self.speaker_dir = Path(speaker_dir)
         self.default_emotion = default_emotion
         self.timeout = timeout
         self._available = False
-
-        # 确保参考音频目录存在
         self.speaker_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            f"GPT-SoVITS 客户端初始化 | API={base_url} | "
-            f"speaker_dir={speaker_dir}"
+            f"GPT-SoVITS 客户端 | API={base_url} | speaker_dir={speaker_dir}"
         )
-
-    async def _check_health(self) -> bool:
-        """检测 GPT-SoVITS 服务是否可用。"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.base_url}/docs",
-                    timeout=aiohttp.ClientTimeout(total=3),
-                ) as resp:
-                    return resp.status == 200
-        except Exception:
-            return False
 
     async def synthesize(
         self,
@@ -83,52 +54,88 @@ class GPTSoVITSClient(TTSBackend):
         output_path: str | Path,
         emotion: str | None = None,
     ) -> Path:
-        """合成语音。
+        """合成语音。长文本自动拆句，逐句合成后拼接。
 
         Args:
             text: 要合成的文本
             output_path: 输出 WAV 文件路径
-            emotion: 情绪标签（neutral/happy/sad/calm）
+            emotion: 情绪标签
 
         Returns:
             输出文件路径
-
-        Raises:
-            RuntimeError: 服务不可用或合成失败
         """
         emotion = emotion or self.default_emotion
-        ref_file = EMOTION_FILES.get(emotion, EMOTION_FILES["neutral"])
-        ref_path = self.speaker_dir / ref_file
-
-        if not ref_path.exists():
-            # 回退到任意可用参考文件
-            available = list(self.speaker_dir.glob("*.wav"))
-            if available:
-                ref_path = available[0]
-                logger.warning(
-                    f"参考音频 {ref_file} 不存在，使用 {ref_path.name}"
-                )
-            else:
-                raise RuntimeError(
-                    f"参考音频目录为空: {self.speaker_dir}\n"
-                    f"请放入参考音频文件（如 speaker_neutral.wav）"
-                )
+        ref_path = self._find_ref_audio(emotion)
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # VSC 语音风格预处理
+        # VSC 轻量预处理
         from voice.vsc import apply_style
         styled_text, styled_prompt = apply_style(text, "eri")
 
+        # 拆分为短句
+        sentences = _split_sentences(styled_text)
+
+        if len(sentences) == 1:
+            # 短文本直接合成
+            return await self._synthesize_one(
+                sentences[0], styled_prompt, ref_path, output_path
+            )
+
+        # 长文本逐句合成 + 拼接
+        logger.info(f"长文本拆分为 {len(sentences)} 句，逐句合成...")
+        segment_files = []
+        for i, sent in enumerate(sentences):
+            if not sent.strip():
+                continue
+            tmp_file = output_path.parent / f"_seg_{i:03d}.wav"
+            try:
+                await self._synthesize_one(
+                    sent, styled_prompt, ref_path, tmp_file
+                )
+                segment_files.append(tmp_file)
+            except Exception as e:
+                logger.warning(f"第 {i} 句合成失败: {e}，跳过")
+                # 插入短暂静音作为占位
+                silence = AudioSegment.silent(duration=300)
+                silence.export(tmp_file, format="wav")
+                segment_files.append(tmp_file)
+
+        # 拼接所有片段
+        if segment_files:
+            combined = AudioSegment.empty()
+            for f in segment_files:
+                combined += AudioSegment.from_wav(f) + AudioSegment.silent(duration=200)
+            combined.export(output_path, format="wav")
+            # 清理临时文件
+            for f in segment_files:
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        logger.info(
+            f"GPT-SoVITS: {len(text)}字, {len(sentences)}句 → {output_path}"
+        )
+        return output_path
+
+    async def _synthesize_one(
+        self,
+        text: str,
+        prompt_text: str,
+        ref_path: Path,
+        output_path: Path,
+    ) -> Path:
+        """合成单句。"""
         payload = {
-            "text": styled_text,
+            "text": text,
             "text_lang": "zh",
             "ref_audio_path": str(ref_path.resolve()),
-            "prompt_text": styled_prompt,
+            "prompt_text": prompt_text,
             "prompt_lang": "zh",
-            "top_k": 5,
-            "top_p": 0.8,
+            "top_k": 20,
+            "top_p": 0.9,
             "temperature": 0.8,
             "text_split_method": "cut0",
             "batch_size": 1,
@@ -136,26 +143,73 @@ class GPTSoVITSClient(TTSBackend):
             "seed": -1,
         }
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/tts",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout),
-                ) as resp:
-                    if resp.status != 200:
-                        detail = await resp.text()
-                        raise RuntimeError(f"GPT-SoVITS API 错误: {detail}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/tts",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
+            ) as resp:
+                if resp.status != 200:
+                    detail = await resp.text()
+                    raise RuntimeError(f"GPT-SoVITS API 错误: {detail}")
+                audio_bytes = await resp.read()
+                output_path.write_bytes(audio_bytes)
 
-                    audio_bytes = await resp.read()
-                    output_path.write_bytes(audio_bytes)
+        return output_path
 
-            logger.info(
-                f"GPT-SoVITS: {len(text)}字 → {output_path} "
-                f"[情绪={emotion}]"
-            )
-            return output_path
+    def _find_ref_audio(self, emotion: str) -> Path:
+        """查找参考音频文件。"""
+        ref_file = EMOTION_FILES.get(emotion, EMOTION_FILES["neutral"])
+        ref_path = self.speaker_dir / ref_file
 
-        except aiohttp.ClientError as e:
-            self._available = False
-            raise RuntimeError(f"GPT-SoVITS 连接失败: {e}") from e
+        if not ref_path.exists():
+            available = list(self.speaker_dir.glob("*.wav"))
+            if available:
+                ref_path = available[0]
+                logger.warning(f"参考音频 {ref_file} 不存在，使用 {ref_path.name}")
+            else:
+                raise RuntimeError(
+                    f"参考音频目录为空: {self.speaker_dir}"
+                )
+        return ref_path
+
+
+def _split_sentences(text: str) -> list[str]:
+    """将文本按语义拆分为短句。
+
+    优先按标点拆分。超长句按逗号或字数二次拆分。
+    每句不超过 MAX_CHARS_PER_SENTENCE 字。
+
+    Args:
+        text: 输入文本
+
+    Returns:
+        短句列表
+    """
+    # 先按句末标点拆分
+    raw = re.split(r"(?<=[。！？!?……])", text)
+    result = []
+
+    for part in raw:
+        part = part.strip()
+        if not part:
+            continue
+        if len(part) <= MAX_CHARS_PER_SENTENCE:
+            result.append(part)
+        else:
+            # 二次拆分：按逗号
+            sub_parts = re.split(r"(?<=[，,])", part)
+            for sp in sub_parts:
+                sp = sp.strip()
+                if not sp:
+                    continue
+                if len(sp) <= MAX_CHARS_PER_SENTENCE:
+                    result.append(sp)
+                else:
+                    # 机械切分
+                    for i in range(0, len(sp), MAX_CHARS_PER_SENTENCE):
+                        chunk = sp[i:i + MAX_CHARS_PER_SENTENCE]
+                        if chunk.strip():
+                            result.append(chunk.strip())
+
+    return result
