@@ -175,41 +175,39 @@ class GPTSoVITSClient(TTSBackend):
 
 
 def _split_sentences(text: str) -> list[str]:
-    """将文本按语义拆分为短句。
-
-    优先按标点拆分。超长句按逗号或字数二次拆分。
-    每句不超过 MAX_CHARS_PER_SENTENCE 字。
+    """将文本按句号拆分为短句。……和、不作为分割点。
 
     Args:
         text: 输入文本
 
     Returns:
-        短句列表
+        短句列表（至少 1 句）
     """
-    # 先按句末标点拆分
-    raw = re.split(r"(?<=[。！？!?……])", text)
-    result = []
+    # 按句末标点拆分（……不是句末，是停顿）
+    raw = re.split(r"(?<=[。！？!?])", text)
 
+    result = []
     for part in raw:
         part = part.strip()
         if not part:
             continue
-        if len(part) <= MAX_CHARS_PER_SENTENCE:
-            result.append(part)
-        else:
-            # 二次拆分：按逗号
+        # 过滤纯标点或无意义短句
+        meaningful = re.sub(r"[……\s]+", "", part)
+        if not meaningful or len(meaningful) < 2:
+            continue
+        # 超长句二次拆分
+        if len(part) > MAX_CHARS_PER_SENTENCE:
             sub_parts = re.split(r"(?<=[，,])", part)
             for sp in sub_parts:
                 sp = sp.strip()
-                if not sp:
-                    continue
-                if len(sp) <= MAX_CHARS_PER_SENTENCE:
+                meaningful2 = re.sub(r"[……\s]+", "", sp)
+                if meaningful2 and len(meaningful2) >= 2:
                     result.append(sp)
-                else:
-                    # 机械切分
-                    for i in range(0, len(sp), MAX_CHARS_PER_SENTENCE):
-                        chunk = sp[i:i + MAX_CHARS_PER_SENTENCE]
-                        if chunk.strip():
-                            result.append(chunk.strip())
+        else:
+            result.append(part)
+
+    # 如果拆分后为空，返回原文本
+    if not result:
+        result = [text.strip()]
 
     return result
