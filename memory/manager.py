@@ -217,9 +217,13 @@ class MemoryManager:
             except Exception as e:
                 logger.warning(f"Profile 存储失败: {e}")
 
-        # 3. 存储 LongMemory（标记 source + evidence）
+        # 3. 存储 LongMemory（排除身份类信息，避免与 Profile 重复）
         if extraction.has_memories:
             for mem in extraction.memories:
+                # 过滤：身份类信息只存 Profile，不存 LongMemory
+                if self._is_identity_memory(mem):
+                    logger.debug(f"跳过身份类记忆: {mem.get('key')}")
+                    continue
                 try:
                     await self.store.add(
                         platform=platform,
@@ -300,6 +304,43 @@ class MemoryManager:
     async def forget(self, platform: str, platform_user_id: str, key: str) -> bool:
         """忘记一条记忆（LongMemory）。"""
         return await self.store.delete(platform, platform_user_id, key)
+
+    @staticmethod
+    def _is_identity_memory(mem: dict) -> bool:
+        """判断一条 LongMemory 是否属于身份类信息。
+
+        身份信息（姓名/昵称/学校/专业/工作）只存 Profile，
+        不进入 LongMemory，避免重复污染。
+
+        Args:
+            mem: {"key": "...", "value": "..."}
+
+        Returns:
+            True = 应该跳过，不存 LongMemory
+        """
+        key = mem.get("key", "")
+        value = mem.get("value", "")
+
+        # 身份类 key 关键词
+        identity_keys = [
+            "姓名", "名字", "昵称", "学校", "专业", "工作", "职业",
+            "用户姓名", "用户叫", "叫什么",
+        ]
+        for kw in identity_keys:
+            if kw in key:
+                return True
+
+        # 身份类 value 模式
+        identity_value_patterns = [
+            "用户叫", "用户名叫", "用户的名字", "用户的姓名",
+            "用户就读", "用户在读", "用户学", "用户专业",
+            "用户工作", "用户从事",
+        ]
+        for pat in identity_value_patterns:
+            if pat in value:
+                return True
+
+        return False
 
 
 # ================================================================
