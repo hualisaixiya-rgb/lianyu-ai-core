@@ -11,7 +11,7 @@ def apply_style(text: str, style: str = "eri") -> tuple[str, str]:
 
     只做：
     1. 去掉括号动作描写
-    2. prompt_text 留空（让 GPT-SoVITS 从参考音频自动检测）
+    2. prompt_text 使用参考音频的真实文本（指导韵律）
 
     不做：添加省略号、拆句、改词、重写。
 
@@ -30,5 +30,7 @@ def apply_style(text: str, style: str = "eri") -> tuple[str, str]:
     text = re.sub(r"\([^)]*\)", "", text)
     text = text.strip()
 
-    # prompt_text 留空 —— GPT-SoVITS 自动从参考音频推导韵律
-    return text, ""
+    # prompt_text = 参考音频 1.wav 的真实文本
+    # GPT-SoVITS 用此文本学习参考音频的语调、停顿、韵律
+    prompt = "呆在Sakura身边，很舒服，暖洋洋的，像太阳照在身上，很开心"
+    return text, prompt
