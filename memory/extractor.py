@@ -93,13 +93,46 @@ AI 说的话不是用户的事实。
 class MemoryExtractor:
     """记忆提取器。"""
 
+    # ---- Profile Intent Detection ----
+
+    @staticmethod
+    def _detect_profile_intent(user_message: str) -> str:
+        """检测用户关于身份信息的意图（纯规则，零 Token）。
+
+        Returns:
+            "NAME_SET" — 普通自称 "我叫a"
+            "NAME_CHANGE_CONFIRM" — 明确要求修改 "以后叫我a"
+            "NONE" — 不涉及身份修改
+        """
+        msg = user_message.strip()
+
+        # 明确修改意图
+        change_patterns = [
+            r"以后叫我", r"把名字改成", r"名字改成", r"改成.*叫我",
+            r"对[，,]?\s*把名字", r"对[，,]?\s*叫我",
+            r"改个名字", r"换个名字", r"改名",
+        ]
+        import re
+        for pat in change_patterns:
+            if re.search(pat, msg):
+                return "NAME_CHANGE_CONFIRM"
+
+        # 普通自称
+        if any(kw in msg for kw in ["我叫", "我的名字是", "我的名字叫"]):
+            return "NAME_SET"
+
+        return "NONE"
+
+    # ---- Confidence Calculation ----
+
     @staticmethod
     def _compute_confidence(user_message: str, field_name: str) -> int:
         """根据用户消息计算某字段的置信度。
 
         规则（纯程序，不依赖 LLM）：
+        - NAME_CHANGE_CONFIRM（"以后叫我a"）→ 9
         - "对，我叫XXX" / 确认语句 → 9
-        - "我叫XXX" / "我的名字是XXX" → 7
+        - "我叫XXX" / "我的名字是XXX"（NAME_SET）→ 7
         - "你可以叫我XXX" → 6
         - "我是XXX"（普通提及） → 5
         - LLM 推断 / 无明确标记 → 3
@@ -111,14 +144,21 @@ class MemoryExtractor:
         Returns:
             置信度 1-10
         """
+        import re
         msg = user_message.strip()
+
+        # 最高优先级：检测 Intent
+        intent = MemoryExtractor._detect_profile_intent(msg)
+
+        # 明确修改意图 → 最高置信度
+        if intent == "NAME_CHANGE_CONFIRM":
+            return 9
 
         # 确认语句
         confirmation_patterns = [
             r"对[，,，\s]*我(?:就)?叫", r"是的?[，,，\s]*我(?:就)?叫",
             r"嗯[，,，\s]*我叫", r"没错[，,，\s]*我叫",
         ]
-        import re
         for pat in confirmation_patterns:
             if re.search(pat, msg):
                 return 9
