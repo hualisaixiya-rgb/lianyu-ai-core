@@ -72,11 +72,21 @@ class WhisperSTT:
             return ""
 
         try:
-            segments, info = self.model.transcribe(
+            result = self.model.transcribe(
                 str(audio_path),
                 beam_size=5,
-                language="zh",  # 默认中文
+                language="zh",
             )
+
+            if result is None:
+                logger.error("STT 返回空（模型可能未就绪）")
+                return ""
+
+            segments, info = result
+
+            if segments is None:
+                logger.error("STT segments 为空（音频可能无声）")
+                return ""
 
             # 拼接所有片段
             text_parts = []
@@ -84,6 +94,9 @@ class WhisperSTT:
                 text_parts.append(segment.text.strip())
 
             text = "".join(text_parts)
+            if not text:
+                logger.warning("STT 未识别到文字")
+                return ""
             logger.info(f"STT 结果 ({len(text)} 字): {text[:80]}...")
             return text
 
