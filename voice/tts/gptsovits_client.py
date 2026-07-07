@@ -128,9 +128,9 @@ class GPTSoVITSClient(TTSBackend):
         output_path: Path,
     ) -> Path:
         """合成单句。"""
-        # 辅助参考音频（混合多条，增强情感表现力）
+        # 辅助参考音频：3.wav（暖洋洋开心）+ 2.wav（撒娇感）
         aux_refs = []
-        for name in ["2.wav", "3.wav"]:
+        for name in ["3.wav", "2.wav"]:
             p = self.speaker_dir / name
             if p.exists():
                 aux_refs.append(str(p.resolve()))
@@ -142,12 +142,12 @@ class GPTSoVITSClient(TTSBackend):
             "aux_ref_audio_paths": aux_refs,
             "prompt_text": prompt_text,
             "prompt_lang": "zh",
-            "top_k": 20,
-            "top_p": 0.85,
+            "top_k": 28,
+            "top_p": 0.88,
             "temperature": 0.8,
             "text_split_method": "cut0",
             "batch_size": 1,
-            "speed_factor": 0.85,
+            "speed_factor": 0.9,
             "seed": -1,
         }
 
