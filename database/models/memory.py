@@ -34,6 +34,16 @@ class MemoryRecord(Base):
     key: Mapped[str] = mapped_column(String(256), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     importance: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+
+    # ---- Memory Safety ----
+    source: Mapped[str] = mapped_column(
+        String(32), default="unknown", nullable=False, index=True
+    )
+    """来源类型：user_explicit / assistant_generated / system / unknown"""
+
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """证据：用户原话或系统记录。用于追溯。"""
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

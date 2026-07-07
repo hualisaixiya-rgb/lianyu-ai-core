@@ -25,13 +25,14 @@ class SQLiteMemoryStore(MemoryStore):
         key: str,
         value: str,
         importance: int = 5,
+        source: str = "unknown",
+        evidence: str | None = None,
     ) -> None:
         """添加一条记忆记录。
 
         如果 key 已存在则更新内容。
         """
         async with AsyncSessionLocal.get_session() as session:
-            # 检查是否已存在同 key 记录
             stmt = select(MemoryRecord).where(
                 MemoryRecord.platform == platform,
                 MemoryRecord.platform_user_id == platform_user_id,
@@ -43,6 +44,9 @@ class SQLiteMemoryStore(MemoryStore):
             if existing:
                 existing.value = value
                 existing.importance = importance
+                existing.source = source
+                if evidence:
+                    existing.evidence = evidence
                 logger.debug(f"更新记忆: {key}")
             else:
                 record = MemoryRecord(
@@ -51,6 +55,8 @@ class SQLiteMemoryStore(MemoryStore):
                     key=key,
                     value=value,
                     importance=importance,
+                    source=source,
+                    evidence=evidence,
                 )
                 session.add(record)
                 logger.debug(f"新增记忆: {key}")

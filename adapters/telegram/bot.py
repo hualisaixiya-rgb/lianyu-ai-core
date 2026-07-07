@@ -133,6 +133,20 @@ class TelegramBot:
         username = user.username or user.first_name or "未知"
         text = update.message.text
 
+        # 检测引用回复：用户是否回复了某条消息
+        reply_to_text: str | None = None
+        if update.message.reply_to_message:
+            replied = update.message.reply_to_message
+            # 提取被引用消息的文本
+            if replied.text:
+                reply_to_text = replied.text
+            elif replied.caption:
+                reply_to_text = replied.caption
+            if reply_to_text:
+                logger.debug(
+                    f"检测到引用回复 | 被引用: {reply_to_text[:80]}..."
+                )
+
         logger.debug(f"收到消息: [{user_id}] {username}: {text}")
 
         # 更新 Agent 活跃时间
@@ -154,6 +168,7 @@ class TelegramBot:
             platform_user_id=user_id,
             message=text,
             username=username,
+            reply_to_message=reply_to_text,
         )
 
         try:

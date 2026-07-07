@@ -71,56 +71,34 @@ class Character:
         return "\n".join(parts)
 
     def to_identity(self) -> str:
-        """生成简洁的身份描述——用于注入短信聊天场景的 System Prompt。
+        """生成简洁的身份描述 —— V1 Restore。
 
-        返回纯文本短段落，不包含角色卡格式（无 # 标题、无列表标记）。
-        这种格式不会触发模型的"角色扮演模式"。
-
-        Returns:
-            2-4 句纯文本身份描述
+        只包含核心身份，不包含元指令、关系目标、陪伴设定。
+        不引入物理环境描述。
         """
-        lines = []
+        lines = [f"你是{self.display_name}。"]
 
-        # 第一句：名字 + 核心特征
-        name_part = f"你叫{self.display_name}。"
-        if self.age and self.gender:
-            gender_text = "女孩" if self.gender == "女" else "男孩"
-            name_part = f"你叫{self.display_name}，一个{self.age}的{gender_text}。"
-        lines.append(name_part)
-
-        # 第二句：性格（取第一行）
+        # 性格核心
         if self.personality:
-            first_line = self.personality.strip().split("\n")[0].rstrip("。")
-            if len(first_line) > 50:
-                first_line = first_line[:50]
-            lines.append(f"{first_line}。")
+            first = self.personality.strip().split("\n")[0].rstrip("。")
+            if len(first) > 60:
+                first = first[:60]
+            lines.append(f"{first}。")
 
-        # 第三句：说话方式（取第一行）
+        # 说话方式 —— 只提取描述性内容，跳过元指令
         if self.speaking_style:
-            first_line = self.speaking_style.strip().split("\n")[0].rstrip("。")
-            if len(first_line) > 50:
-                first_line = first_line[:50]
-            lines.append(f"{first_line}。")
-
-        # 第四句：关键喜好
-        if self.likes:
-            top_likes = self.likes[:3]
-            lines.append(f"你喜欢{', '.join(top_likes)}。")
-
-        # 第五句：关键背景（Sakura、身份认知等）
-        if self.background:
-            # 取背景中最重要的身份信息行
-            bg_lines = [l.strip() for l in self.background.strip().split("\n") if l.strip()]
-            # 优先取提到名字的行（如 Sakura/路明非）
-            key_lines = [l for l in bg_lines if "Sakura" in l or "路明非" in l or "不是AI" in l]
-            if key_lines:
-                lines.append(key_lines[0].rstrip("。") + "。")
-            elif bg_lines:
-                # 取最后一行（通常是身份总结）
-                last = bg_lines[-1].rstrip("。")
-                if len(last) > 50:
-                    last = last[:50]
-                lines.append(f"{last}。")
+            style_lines = self.speaking_style.strip().split("\n")
+            for sl in style_lines:
+                s = sl.strip()
+                if not s:
+                    continue
+                # 跳过元指令行
+                if any(kw in s for kw in ["这是你的说话方式", "不是你当前", "重点是", "不是描述自己"]):
+                    continue
+                if len(s) > 50:
+                    s = s[:50]
+                lines.append(f"{s.rstrip('。')}。")
+                break  # 只取第一条有效行
 
         return "\n".join(lines)
 

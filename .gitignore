@@ -22,9 +22,14 @@ env/
 *.swo
 
 # 数据库
-data/
+data/*
+!data/.gitkeep
 *.db
 *.sqlite3
+
+# 备份
+*.bak.*
+backups/
 
 # 日志
 logs/
