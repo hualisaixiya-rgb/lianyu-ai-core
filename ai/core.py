@@ -326,10 +326,20 @@ class AICore:
             summary_for_prompt = ""
             timeline_for_prompt = ""
         elif intent == Intent.IDENTITY_CHECK:
-            # 身份确认：用完整 Profile，不用 LongMemory/Summary/Timeline
+            # 身份确认：用完整 Profile，硬注入确认名字，不用 LongMemory/Summary/Timeline
             mem_ctx.memory_context = ""
             summary_for_prompt = ""
             timeline_for_prompt = ""
+
+            # 硬注入：从 Profile 中提取名字，直接告诉模型
+            profile_name = await self._get_confirmed_name(
+                context.platform, context.platform_user_id
+            )
+            if profile_name:
+                mem_ctx.profile_context = (
+                    f"【IDENTITY OVERRIDE】对方的名字（已确认）是：{profile_name}。"
+                    "你的回复必须使用这个名字。不要使用聊天记录中看到的任何其他名字。"
+                )
         elif intent == Intent.RECALL_PAST:
             # 回忆过去：用 Timeline + Profile，不用当前 Summary
             summary_for_prompt = ""
@@ -739,6 +749,20 @@ class AICore:
                 )
         except Exception as e:
             logger.warning(f"Profile 提取失败: {e}")
+
+    async def _get_confirmed_name(
+        self, platform: str, platform_user_id: str
+    ) -> str | None:
+        """获取已确认的用户姓名（仅 applied，不含 pending）。"""
+        try:
+            profile = await self.memory.profile_store.get(
+                platform, platform_user_id
+            )
+            if profile and profile.name:
+                return profile.name
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _should_extract(user_message: str, ai_reply: str) -> bool:
