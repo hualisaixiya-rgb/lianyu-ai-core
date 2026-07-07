@@ -285,7 +285,7 @@ class ProfileStore:
         if profile is None or not profile.has_any_data():
             return ""
 
-        lines = ["关于这个聊天对象，你知道："]
+        lines = ["【已确认的对方信息】（这些是验证过的事实）"]
         for field_name in PROFILE_FIELDS:
             value = profile.get_field(field_name)
             if not value:
@@ -318,7 +318,7 @@ class ProfileStore:
 
         if not parts:
             return ""
-        return "关于对方，你知道：" + "，".join(parts)
+        return "【已确认】" + "，".join(parts)
 
     def format_minimal(self, profile: ProfileData | None) -> str:
         """最小版 Profile —— 普通问候时使用。

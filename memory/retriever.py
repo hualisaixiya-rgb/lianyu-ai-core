@@ -151,7 +151,7 @@ class MemoryRetriever:
         if not items:
             return ""
 
-        lines = ["你对这个聊天对象的记忆："]
+        lines = ["【长期记忆】（可信度低于已确认信息，来自之前对话的提取）"]
         for item in items:
             lines.append(f"- {item.value}")
 

@@ -377,8 +377,17 @@ class AICore:
             )
 
         try:
+            # Chat History 包装：标记为"仅供上下文，不代表事实"
+            wrapped_messages = [
+                {"role": "system", "content": (
+                    "以下聊天记录仅供上下文参考，不代表最终事实。"
+                    "用户可能在对话中改过名字、纠正过信息、或随口说过不准确的话。"
+                    "以 System Prompt 中的【已确认】信息为最高优先级。"
+                )}
+            ] + list(session.messages)
+
             reply = await self.provider.chat(
-                messages=session.messages,
+                messages=wrapped_messages,
                 system_prompt=system_prompt,
             )
         except ValueError as e:
