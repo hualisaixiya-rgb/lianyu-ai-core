@@ -242,6 +242,19 @@ class ProfileStore:
                         )
                         results[key] = "confirmed"
 
+                    elif old_confidence >= 7 and confidence < 9:
+                        # 已有高置信度身份 → 普通自称不可覆盖，需显式确认
+                        self._write_history(
+                            session, platform, platform_user_id,
+                            key, old_value, new_value, confidence, evidence, "pending",
+                        )
+                        results[key] = "pending"
+                        logger.info(
+                            f"Profile 冲突: [{platform}:{platform_user_id}] "
+                            f"{key}: 保留 {old_value!r}, 收到 {new_value!r} "
+                            f"(confidence={confidence}, old={old_confidence}≥7, 需显式确认)"
+                        )
+
                     elif confidence >= old_confidence:
                         # 新值置信度更高 → 覆盖
                         setattr(row, key, new_value)
