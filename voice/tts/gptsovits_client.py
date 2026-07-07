@@ -134,12 +134,12 @@ class GPTSoVITSClient(TTSBackend):
             "ref_audio_path": str(ref_path.resolve()),
             "prompt_text": prompt_text,
             "prompt_lang": "zh",
-            "top_k": 20,
-            "top_p": 0.9,
-            "temperature": 0.8,
+            "top_k": 15,
+            "top_p": 0.8,
+            "temperature": 0.7,
             "text_split_method": "cut0",
             "batch_size": 1,
-            "speed_factor": 1.0,
+            "speed_factor": 0.9,
             "seed": -1,
         }
 
