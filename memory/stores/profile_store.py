@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -158,19 +158,21 @@ class ProfileStore:
         self,
         platform: str,
         platform_user_id: str,
+        confidence: int = 5,
+        evidence: str = "",
         **fields: Any,
-    ) -> None:
-        """创建或更新用户画像（增量更新）。
-
-        只更新有值的字段，不清空已有数据。
-        例如：
-            upsert("tg", "1", name="夏离萤")
-            upsert("tg", "1", birthday="2000-01-15")  # name 不会被覆盖
+    ) -> dict[str, str]:
+        """创建或更新用户画像（V3 冲突检测）。
 
         Args:
             platform: 平台标识
             platform_user_id: 平台侧用户 ID
-            **fields: 要更新的字段，支持 likes/dislikes 传 list
+            confidence: 新值的置信度 1-10
+            evidence: 用户原话
+            **fields: 要更新的字段
+
+        Returns:
+            {field_name: status} — applied / pending / confirmed
         """
         # 序列化列表字段
         updates: dict[str, Any] = {}
@@ -183,7 +185,9 @@ class ProfileStore:
                 updates[key] = value
 
         if not updates:
-            return
+            return {}
+
+        results: dict[str, str] = {}
 
         async with AsyncSessionLocal.get_session() as session:
             stmt = select(UserProfile).where(
@@ -194,30 +198,76 @@ class ProfileStore:
             row = result.scalar_one_or_none()
 
             if row is None:
-                # 新建
+                # 新建用户：所有字段直接写入
                 row = UserProfile(
                     platform=platform,
                     platform_user_id=platform_user_id,
                     **updates,
                 )
                 session.add(row)
+                await session.flush()
+                for key in updates:
+                    self._write_history(
+                        session, platform, platform_user_id,
+                        key, None, updates[key], confidence, evidence, "applied",
+                    )
+                    results[key] = "applied"
                 logger.info(
                     f"Profile 新建: [{platform}:{platform_user_id}] "
                     f"fields={list(updates.keys())}"
                 )
             else:
-                # 增量更新：只覆盖有值的字段
-                changed = False
-                for key, value in updates.items():
-                    current = getattr(row, key, None)
-                    if current != value:
-                        setattr(row, key, value)
-                        changed = True
-                if changed:
-                    logger.info(
-                        f"Profile 更新: [{platform}:{platform_user_id}] "
-                        f"fields={list(updates.keys())}"
+                # 已有用户：逐字段冲突检测
+                for key, new_value in updates.items():
+                    old_value = getattr(row, key, None)
+                    old_confidence = await self._get_field_confidence(
+                        session, platform, platform_user_id, key
                     )
+
+                    if old_value is None:
+                        # 首次设置 → 直接写入
+                        setattr(row, key, new_value)
+                        self._write_history(
+                            session, platform, platform_user_id,
+                            key, None, new_value, confidence, evidence, "applied",
+                        )
+                        results[key] = "applied"
+
+                    elif str(new_value) == str(old_value):
+                        # 相同值 → 确认
+                        confirmed_conf = min(old_confidence + 1, 10)
+                        self._write_history(
+                            session, platform, platform_user_id,
+                            key, old_value, new_value, confirmed_conf, evidence, "confirmed",
+                        )
+                        results[key] = "confirmed"
+
+                    elif confidence >= old_confidence:
+                        # 新值置信度更高 → 覆盖
+                        setattr(row, key, new_value)
+                        self._write_history(
+                            session, platform, platform_user_id,
+                            key, old_value, new_value, confidence, evidence, "applied",
+                        )
+                        results[key] = "applied"
+                        logger.info(
+                            f"Profile 更新: [{platform}:{platform_user_id}] "
+                            f"{key}: {old_value!r} → {new_value!r} (confidence={confidence})"
+                        )
+
+                    else:
+                        # 低置信度 → 不覆盖，记录为 pending
+                        self._write_history(
+                            session, platform, platform_user_id,
+                            key, old_value, new_value, confidence, evidence, "pending",
+                        )
+                        results[key] = "pending"
+                        logger.info(
+                            f"Profile 冲突: [{platform}:{platform_user_id}] "
+                            f"{key}: 保留 {old_value!r}, 收到 {new_value!r} (confidence={confidence} < {old_confidence})"
+                        )
+
+        return results
 
     # ================================================================
     # 格式化
@@ -282,6 +332,59 @@ class ProfileStore:
     # ================================================================
     # 内部方法
     # ================================================================
+
+    @staticmethod
+    async def _get_field_confidence(
+        session, platform: str, platform_user_id: str, field_name: str
+    ) -> int:
+        """查询某字段当前的置信度。
+
+        从 profile_history 中取最新一条 applied 记录的 confidence。
+        无历史记录时返回 0（表示从未被设置过）。
+        """
+        from database.models.profile import ProfileHistory
+
+        stmt = (
+            select(ProfileHistory)
+            .where(
+                ProfileHistory.platform == platform,
+                ProfileHistory.platform_user_id == platform_user_id,
+                ProfileHistory.field_name == field_name,
+                ProfileHistory.status == "applied",
+            )
+            .order_by(desc(ProfileHistory.created_at))
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return row.confidence if row else 0
+
+    @staticmethod
+    def _write_history(
+        session,
+        platform: str,
+        platform_user_id: str,
+        field_name: str,
+        old_value: str | None,
+        new_value: str,
+        confidence: int,
+        evidence: str,
+        status: str,
+    ) -> None:
+        """写入 profile_history 记录。"""
+        from database.models.profile import ProfileHistory
+
+        entry = ProfileHistory(
+            platform=platform,
+            platform_user_id=platform_user_id,
+            field_name=field_name,
+            old_value=old_value,
+            new_value=new_value,
+            confidence=confidence,
+            evidence=evidence[:500] if evidence else None,
+            status=status,
+        )
+        session.add(entry)
 
     @staticmethod
     def _row_to_data(row: UserProfile) -> ProfileData:

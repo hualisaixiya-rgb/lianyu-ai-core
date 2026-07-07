@@ -18,6 +18,12 @@ class ExtractionResult:
     """提取结果。"""
 
     profile_fields: dict[str, str | list[str] | None] = field(default_factory=dict)
+    profile_confidence: dict[str, int] = field(default_factory=dict)
+    """每个字段的置信度 {field_name: confidence}"""
+
+    evidence: str = ""
+    """用户原话证据"""
+
     memories: list[dict] = field(default_factory=list)
 
     @property
@@ -87,6 +93,50 @@ AI 说的话不是用户的事实。
 class MemoryExtractor:
     """记忆提取器。"""
 
+    @staticmethod
+    def _compute_confidence(user_message: str, field_name: str) -> int:
+        """根据用户消息计算某字段的置信度。
+
+        规则（纯程序，不依赖 LLM）：
+        - "对，我叫XXX" / 确认语句 → 9
+        - "我叫XXX" / "我的名字是XXX" → 7
+        - "你可以叫我XXX" → 6
+        - "我是XXX"（普通提及） → 5
+        - LLM 推断 / 无明确标记 → 3
+
+        Args:
+            user_message: 用户原话
+            field_name: 字段名
+
+        Returns:
+            置信度 1-10
+        """
+        msg = user_message.strip()
+
+        # 确认语句
+        confirmation_patterns = [
+            r"对[，,，\s]*我(?:就)?叫", r"是的?[，,，\s]*我(?:就)?叫",
+            r"嗯[，,，\s]*我叫", r"没错[，,，\s]*我叫",
+        ]
+        import re
+        for pat in confirmation_patterns:
+            if re.search(pat, msg):
+                return 9
+
+        # 主动自我介绍
+        if any(kw in msg for kw in ["我叫", "我的名字是", "我的名字叫"]):
+            return 7
+
+        # 昵称/称呼偏好
+        if any(kw in msg for kw in ["你可以叫我", "叫我", "喊我"]):
+            return 6
+
+        # 普通提及身份
+        if any(kw in msg for kw in ["我是", "我学", "我在", "我做", "我读", "我从事"]):
+            return 5
+
+        return 3
+
     async def extract(
         self,
         user_message: str,
@@ -122,6 +172,15 @@ class MemoryExtractor:
         result.profile_fields = self._validate_profile_fields(
             result.profile_fields, user_message
         )
+
+        # 计算每个字段的置信度 + 证据
+        if result.has_profile_updates:
+            result.evidence = user_message[:500]
+            for field_name in result.profile_fields:
+                result.profile_confidence[field_name] = self._compute_confidence(
+                    user_message, field_name
+                )
+
         return result
 
     @staticmethod

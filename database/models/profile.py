@@ -72,3 +72,43 @@ class UserProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class ProfileHistory(Base):
+    """Profile 变更历史表。
+
+    记录每次 Profile 字段的变更，支持冲突检测和回滚。
+    不修改 user_profiles 表结构。
+    """
+
+    __tablename__ = "profile_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    platform_user_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, index=True
+    )
+
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    """字段名：name / nickname / major 等"""
+
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """旧值。首次设置时为 NULL"""
+
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    """新值"""
+
+    confidence: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    """新值的置信度 1-10"""
+
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """用户原话（证据）"""
+
+    status: Mapped[str] = mapped_column(
+        String(16), default="applied", nullable=False
+    )
+    """applied / pending / rejected"""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )

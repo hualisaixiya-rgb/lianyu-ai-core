@@ -190,18 +190,30 @@ class MemoryManager:
         profile_count = 0
         memory_count = 0
 
-        # 2. 存储 Profile 更新
+        # 2. 存储 Profile 更新（含冲突检测）
         if extraction.has_profile_updates:
             try:
-                await self.profile_store.upsert(
+                # 取最高置信度作为本次更新的默认置信度
+                default_conf = max(extraction.profile_confidence.values()) if extraction.profile_confidence else 5
+                results = await self.profile_store.upsert(
                     platform, platform_user_id,
+                    confidence=default_conf,
+                    evidence=extraction.evidence,
                     **extraction.profile_fields,
                 )
-                profile_count = len(extraction.profile_fields)
-                logger.info(
-                    f"Profile 已更新: [{platform}:{platform_user_id}] "
-                    f"+{profile_count} 字段: {list(extraction.profile_fields.keys())}"
-                )
+                # 统计实际应用的字段数
+                profile_count = sum(1 for v in results.values() if v != "pending")
+                pending_count = sum(1 for v in results.values() if v == "pending")
+                if pending_count > 0:
+                    logger.info(
+                        f"Profile 冲突: [{platform}:{platform_user_id}] "
+                        f"{pending_count} 字段待确认"
+                    )
+                if profile_count > 0:
+                    logger.info(
+                        f"Profile 已更新: [{platform}:{platform_user_id}] "
+                        f"+{profile_count} 字段: {list(results.keys())}"
+                    )
             except Exception as e:
                 logger.warning(f"Profile 存储失败: {e}")
 

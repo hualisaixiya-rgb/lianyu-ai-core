@@ -87,6 +87,16 @@ class TimelineEntry(Base):
     importance: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     """重要性 1-10。高光时刻标记为更高。预留。"""
 
+    # ---- V3 结构化字段 ----
+    emotion: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    """用户主要情绪：平静/开心/疲惫/难过/焦虑/其他"""
+
+    relationship_meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """这件事对这段关系意味着什么"""
+
+    topic: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """相关主题标签"""
+
     # ---- 元数据 ----
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
