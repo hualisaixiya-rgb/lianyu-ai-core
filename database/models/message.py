@@ -5,7 +5,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database.models.base import Base
@@ -33,6 +33,11 @@ class Message(Base):
     platform_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    context_visible: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, index=True
+    )
+    """是否进入 LLM 上下文。身份声明类消息设为 False，数据库保留但不注入 Prompt。"""
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False, index=True
     )

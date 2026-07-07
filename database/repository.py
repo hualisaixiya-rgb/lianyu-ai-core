@@ -93,6 +93,7 @@ class MessageRepository:
         platform_user_id: str,
         role: str,
         content: str,
+        context_visible: bool = True,
     ) -> Message:
         """保存一条消息。
 
@@ -101,6 +102,7 @@ class MessageRepository:
             platform_user_id: 平台侧用户 ID
             role: 消息角色（"user" / "assistant"）
             content: 消息内容
+            context_visible: 是否进入 LLM 上下文（默认 True）
 
         Returns:
             保存后的 Message 实例
@@ -111,10 +113,14 @@ class MessageRepository:
                 platform_user_id=platform_user_id,
                 role=role,
                 content=content,
+                context_visible=context_visible,
             )
             session.add(msg)
             await session.flush()
-            logger.debug(f"消息已保存: [{role}] {content[:30]}...")
+            if not context_visible:
+                logger.debug(f"消息已保存（不含上下文）: [{role}] {content[:30]}...")
+            else:
+                logger.debug(f"消息已保存: [{role}] {content[:30]}...")
             return msg
 
     @staticmethod
@@ -142,6 +148,7 @@ class MessageRepository:
                 .where(
                     Message.platform == platform,
                     Message.platform_user_id == platform_user_id,
+                    Message.context_visible == True,
                 )
                 .order_by(Message.created_at.desc())
                 .limit(limit)
