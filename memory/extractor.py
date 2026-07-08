@@ -137,8 +137,11 @@ class MemoryExtractor:
             if re.search(pat, msg):
                 return "NICKNAME_SET"
 
-        # 名字介绍（"我叫X" + "我是X"）
+        # 名字介绍（"我叫X" + "我是X"）—— 排除疑问句
         if any(kw in msg for kw in ["我叫", "我的名字是", "我的名字叫"]):
+            # 排除 "我叫什么" "我叫啥" 等疑问句
+            if any(q in msg for q in ["什么", "啥", "谁"]):
+                return "NONE"
             return "NAME_INTRO"
 
         # "我是X" — 排除角色词
@@ -146,10 +149,11 @@ class MemoryExtractor:
             "学生", "老师", "程序员", "工程师", "医生", "护士", "设计师",
             "测试", "测试用户", "用户", "客户", "管理员",
         ]
+        question_words = {"什么", "啥", "谁", "哪个"}
         m = re.match(r"我是(.{1,6})$", msg)
         if m:
             x = m.group(1)
-            if x not in role_words:
+            if x not in role_words and x not in question_words:
                 return "NAME_INTRO"
 
         return "NONE"

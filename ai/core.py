@@ -919,6 +919,11 @@ class AICore:
         if not value or len(value) > 20:
             return
 
+        # 过滤非名字值：疑问词、占位符
+        invalid_names = {"什么", "啥", "谁", "哪个", "test", "测试", "名字"}
+        if value.strip() in invalid_names:
+            return
+
         # 读旧值
         old_value = None
         try:
