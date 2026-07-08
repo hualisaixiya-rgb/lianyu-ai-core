@@ -24,15 +24,25 @@ from memory.stores.relationship_memory_store import (
 )
 
 
-# 提炼 Prompt（极简，~80 tokens）
+# 提炼 Prompt —— Relationship Memory（只存关系模式，不存事实）
 CONSOLIDATION_PROMPT = """\
 从以下共同经历中提炼一条关于"这段关系"的理解。
 
 规则：
-- 聚焦于用户在这段关系中表现出的需要、模式、边界
+- 关系模式：用户在这段关系中表现出的需要、偏好、边界
 - 不是总结事件，是理解关系
+- 不是用户身份事实（姓名、学校、工作），而是关系层面的理解
 - 用一句话表达
 - 如果没有值得提炼的关系理解，返回空
+
+示例（好的关系理解）：
+- "用户喜欢被叫小名，这让他感到亲近"
+- "用户分享排练经历时，更需要陪伴而非建议"
+- "被记住对用户很重要"
+
+示例（错误——这是身份事实，不能存）：
+- "用户叫夏离萤" → 这是 Profile
+- "用户在XX大学" → 这是 Profile
 
 输出格式（JSON）：
 {"category":"understanding|pattern|need|boundary","content":"一句话关系理解","importance":5,"confidence":5}

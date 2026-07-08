@@ -183,9 +183,12 @@ class RelationshipMemoryStore:
         if not entries:
             return ""
 
-        lines = ["【长期关系理解】"]
+        lines = ["【长期关系理解】（关系模式，不是身份事实）"]
         for entry in entries:
-            lines.append(f"- {entry['content']}")
+            confidence_note = ""
+            if entry.get("confidence", 5) >= 8:
+                confidence_note = "（已多次确认）"
+            lines.append(f"- {entry['content']}{confidence_note}")
 
         return "\n".join(lines)
 

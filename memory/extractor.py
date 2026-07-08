@@ -158,6 +158,28 @@ class MemoryExtractor:
 
         return "NONE"
 
+    @staticmethod
+    def _is_profile_field(content: str) -> bool:
+        """检查内容是否属于 Profile 身份字段。
+
+        Relationship Memory 不存事实，只存关系模式。
+        身份类内容（姓名/学校/专业/工作/生日）→ 拦截。
+        """
+        import re
+        patterns = [
+            r"(?:名字|姓名)[是为叫]",              # "名字是/名字叫"
+            r"(?<!被)(?:名叫|叫做|叫作|称呼为)",    # "名叫X"但不是"被叫"
+            r"用户叫[^\s，,。]{1,8}",              # "用户叫X"
+            r"(?:在|读|上).{0,5}(?:大学|学院|学校)",
+            r"专业[是为]",
+            r"生日[是为]?",
+            r"工作[是为]?",
+        ]
+        for pat in patterns:
+            if re.search(pat, content):
+                return True
+        return False
+
     # ---- Confidence Calculation ----
 
     @staticmethod
