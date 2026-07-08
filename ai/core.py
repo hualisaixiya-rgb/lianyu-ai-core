@@ -865,11 +865,12 @@ class AICore:
                     break
         elif intent == "NICKNAME_SET":
             field_name = "nickname"
-            for pat in [r"你可以叫我(.+)", r"以后叫我(.+)", r"可以叫我(.+)",
-                       r"平时喊我(.+)", r"喊我(.+)", r"叫我(.+)"]:
-                m = re.match(pat, msg)
+            for pat in [r"(?:以后|以后你|你以后|你可以|可以|平时)?(?:喊|叫)我(.+)"]:
+                m = re.search(pat, msg)
                 if m:
-                    value = m.group(1).strip().rstrip("，,。！!吧")
+                    raw = m.group(1).strip()
+                    # 去掉尾部语气词
+                    value = re.sub(r"[吧呀啊哦嘛呢]$", "", raw).strip()
                     break
         elif intent == "NAME_CHANGE_REQUEST":
             field_name = "name"
