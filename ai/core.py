@@ -249,13 +249,13 @@ class AICore:
         user_message_for_llm = self._format_user_message(context)
 
         # 3. 保存用户消息到数据库（身份声明类标记为 context_visible=False）
-        is_identity_msg = self._is_identity_declaration(context.message)
+        context_visible = not self._is_identity_declaration(context.message)
         await MessageRepository.save(
             platform=context.platform,
             platform_user_id=context.platform_user_id,
             role="user",
             content=context.message,
-            context_visible=not is_identity_msg,
+            context_visible=context_visible,
         )
 
         # 4. 加载对话历史（发送给 LLM 的消息使用含引用上下文的版本）
@@ -268,7 +268,8 @@ class AICore:
             )
             session.messages = db_history
             session.loaded_from_db = True
-        session.messages.append({"role": "user", "content": user_message_for_llm})
+        if context_visible:
+            session.messages.append({"role": "user", "content": user_message_for_llm})
 
         # 5. Rule Engine：更新 World State + Active Topics（程序优先，零 Token）
         if session.world_state is None:
@@ -420,10 +421,12 @@ class AICore:
             platform_user_id=context.platform_user_id,
             role="assistant",
             content=clean_reply,
+            context_visible=context_visible,
         )
 
-        # 10. 更新会话缓存（用纯净版本）
-        session.messages.append({"role": "assistant", "content": clean_reply})
+        # 10. 更新会话缓存（身份声明消息跳过，不污染上下文）
+        if context_visible:
+            session.messages.append({"role": "assistant", "content": clean_reply})
 
         # 10.5. 追踪待摘要消息数，超过阈值触发滚动摘要
         session.pending_count += 2
