@@ -733,9 +733,20 @@ class AICore:
     ) -> None:
         """异步提取 Profile（后台运行，不影响回复速度）。
 
-        只提取用户明确陈述的身份信息（"我叫xxx"）。
-        不提取 LongMemory。
+        identity intent → 不调 LLM，直接创建 pending。
+        NAME_CHANGE_CONFIRM → 调 LLM 提取，正常 applied。
         """
+        from memory.extractor import MemoryExtractor
+        intent = MemoryExtractor._detect_profile_intent(context.message)
+
+        # 身份声明 intent → 绕过 LLM，直接创建 pending
+        if intent in ("NAME_INTRO", "NICKNAME_SET", "NAME_CHANGE_REQUEST"):
+            await self._create_pending_identity(
+                context, intent,
+            )
+            return
+
+        # 其他非身份场景 → 走正常的 _should_extract 守卫
         if not self._should_extract(context.message, ai_reply):
             return
 
@@ -754,6 +765,83 @@ class AICore:
                 )
         except Exception as e:
             logger.warning(f"Profile 提取失败: {e}")
+
+    async def _create_pending_identity(
+        self, context: ChatContext, intent: str
+    ) -> None:
+        """绕过 LLM + upsert，直接在 profile_history 创建 pending。
+
+        不修改 user_profiles。
+        """
+        import re
+        from database.models.profile import ProfileHistory
+        from database.session import AsyncSessionLocal
+
+        msg = context.message.strip()
+        value = None
+        field_name = "name"
+
+        if intent == "NAME_INTRO":
+            field_name = "name"
+            for pat in [r"我叫(.+)", r"我的名字[是叫](.+)", r"我是(.+)"]:
+                m = re.match(pat, msg)
+                if m:
+                    value = m.group(1).strip().rstrip("，,。！!")
+                    break
+        elif intent == "NICKNAME_SET":
+            field_name = "nickname"
+            for pat in [r"你可以叫我(.+)", r"以后叫我(.+)", r"可以叫我(.+)",
+                       r"平时喊我(.+)", r"喊我(.+)", r"叫我(.+)"]:
+                m = re.match(pat, msg)
+                if m:
+                    value = m.group(1).strip().rstrip("，,。！!吧")
+                    break
+        elif intent == "NAME_CHANGE_REQUEST":
+            field_name = "name"
+            for pat in [r"把名字改成(.+)", r"名字改成(.+)", r"改[个成]名字[为叫]?(.+)",
+                       r"改名[为叫]?(.+)"]:
+                m = re.match(pat, msg)
+                if m:
+                    value = m.group(1).strip().rstrip("，,。！!吧")
+                    break
+
+        if not value or len(value) > 20:
+            return
+
+        # 读旧值
+        old_value = None
+        try:
+            profile = await self.memory.profile_store.get(
+                context.platform, context.platform_user_id
+            )
+            if profile:
+                old_value = profile.get_field(field_name)
+        except Exception:
+            pass
+
+        from memory.extractor import MemoryExtractor
+        confidence = MemoryExtractor._compute_confidence(context.message, field_name)
+
+        # 直接写 profile_history，不修改 user_profiles
+        try:
+            async with AsyncSessionLocal.get_session() as session:
+                entry = ProfileHistory(
+                    platform=context.platform,
+                    platform_user_id=context.platform_user_id,
+                    field_name=field_name,
+                    old_value=old_value,
+                    new_value=value,
+                    confidence=confidence,
+                    evidence=context.message[:500],
+                    status="pending",
+                )
+                session.add(entry)
+            logger.info(
+                f"Profile pending: [{context.platform}:{context.platform_user_id}] "
+                f"intent={intent} {field_name}={value!r} conf={confidence}"
+            )
+        except Exception as e:
+            logger.warning(f"Profile pending 创建失败: {e}")
 
     async def _get_confirmed_name(
         self, platform: str, platform_user_id: str
