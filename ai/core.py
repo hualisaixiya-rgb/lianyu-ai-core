@@ -315,6 +315,16 @@ class AICore:
             f"intent={intent.name}"
         )
 
+        # Pending Resolution：NAME_CHANGE_CONFIRM → 消费 pending → 写入 user_profiles
+        if intent == Intent.DAILY_CHAT:
+            from memory.extractor import MemoryExtractor
+            profile_intent = MemoryExtractor._detect_profile_intent(context.message)
+            if profile_intent == "NAME_CHANGE_CONFIRM":
+                await self._resolve_pending_identity(
+                    context.platform, context.platform_user_id,
+                    context.message,
+                )
+
         mem_ctx = await self.memory.get_context(
             platform=context.platform,
             platform_user_id=context.platform_user_id,
@@ -765,6 +775,71 @@ class AICore:
                 )
         except Exception as e:
             logger.warning(f"Profile 提取失败: {e}")
+
+    async def _resolve_pending_identity(
+        self, platform: str, platform_user_id: str, confirm_msg: str
+    ) -> None:
+        """消费最近的 pending 身份记录 → confirmed → 写入 user_profiles。
+
+        在 chat() 主流程中、build_prompt() 之前调用。
+        同一轮内 LLM 就能看到更新后的 Profile。
+        """
+        from database.models.profile import ProfileHistory
+        from database.session import AsyncSessionLocal
+        from sqlalchemy import desc, select, update as sql_update
+
+        try:
+            async with AsyncSessionLocal.get_session() as session:
+                # 读取最近的 pending 记录
+                stmt = (
+                    select(ProfileHistory)
+                    .where(
+                        ProfileHistory.platform == platform,
+                        ProfileHistory.platform_user_id == platform_user_id,
+                        ProfileHistory.status == "pending",
+                    )
+                    .order_by(desc(ProfileHistory.created_at))
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                pending = result.scalar_one_or_none()
+
+                if pending is None:
+                    return
+
+                # 更新 profile_history → confirmed
+                pid = pending.id
+                from sqlalchemy import text
+                await session.execute(
+                    text("UPDATE profile_history SET status='confirmed', evidence=:ev WHERE id=:id"),
+                    {"ev": f"{pending.evidence or ''}; confirmed: {confirm_msg[:100]}", "id": pid},
+                )
+
+                # 写入 user_profiles
+                from database.models.profile import UserProfile
+                from sqlalchemy import select as sel
+                stmt2 = sel(UserProfile).where(
+                    UserProfile.platform == platform,
+                    UserProfile.platform_user_id == platform_user_id,
+                )
+                r2 = await session.execute(stmt2)
+                row = r2.scalar_one_or_none()
+                if row is None:
+                    row = UserProfile(
+                        platform=platform, platform_user_id=platform_user_id,
+                        **{pending.field_name: pending.new_value},
+                    )
+                    session.add(row)
+                else:
+                    setattr(row, pending.field_name, pending.new_value)
+
+                await session.flush()
+                logger.info(
+                    f"Pending resolved: [{platform}:{platform_user_id}] "
+                    f"{pending.field_name}={pending.new_value!r} → confirmed"
+                )
+        except Exception as e:
+            logger.warning(f"Pending resolution 失败: {e}")
 
     async def _create_pending_identity(
         self, context: ChatContext, intent: str
