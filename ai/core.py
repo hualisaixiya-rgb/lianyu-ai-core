@@ -773,30 +773,35 @@ class AICore:
     def _is_identity_declaration(message: str) -> bool:
         """检测是否为身份声明消息。
 
-        任何以身份关键词开头的消息 → context_visible=False。
-        数据库保留完整记录（用于 Profile 提取），但不注入 LLM 上下文。
-        包括：NAME_SET + NAME_CHANGE_CONFIRM。
+        任何身份 intent → context_visible=False。
+        不注入 LLM 上下文，数据库保留完整记录。
         """
         from memory.extractor import MemoryExtractor
 
         msg = message.strip()
         intent = MemoryExtractor._detect_profile_intent(msg)
-        return intent in ("NAME_SET", "NAME_CHANGE_CONFIRM")
+        return intent in (
+            "NAME_INTRO", "NICKNAME_SET", "NAME_CHANGE_REQUEST",
+            "NAME_CHANGE_CONFIRM",
+        )
 
     @staticmethod
     def _should_extract(user_message: str, ai_reply: str) -> bool:
         """Profile 提取守卫。
 
-        NAME_SET（"我叫a"）→ 直接阻断，不触发任何提取。
-        NAME_CHANGE_CONFIRM（"以后叫我a"）→ 允许提取。
-        其他通过 _can_extract_profile 检查。
+        NAME_INTRO / NICKNAME_SET / NAME_CHANGE_REQUEST → 阻断（进入 pending）。
+        NAME_CHANGE_CONFIRM → 允许（显式确认）。
         """
         from memory.extractor import MemoryExtractor
 
         intent = MemoryExtractor._detect_profile_intent(user_message)
-        if intent == "NAME_SET":
-            return False  # 阻断：未确认的身份试探不触发提取
+
+        # 以下 intent → 阻断，不直接 applied
+        if intent in ("NAME_INTRO", "NICKNAME_SET", "NAME_CHANGE_REQUEST"):
+            return False
+
+        # 显式确认 → 允许
         if intent == "NAME_CHANGE_CONFIRM":
-            return True   # 允许：显式确认需提取
+            return True
 
         return MemoryExtractor._can_extract_profile(user_message)

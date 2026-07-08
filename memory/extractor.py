@@ -100,26 +100,57 @@ class MemoryExtractor:
         """检测用户关于身份信息的意图（纯规则，零 Token）。
 
         Returns:
-            "NAME_SET" — 普通自称 "我叫a"
-            "NAME_CHANGE_CONFIRM" — 明确要求修改 "以后叫我a"
-            "NONE" — 不涉及身份修改
+            NAME_INTRO — "我叫X" "我是X" "我的名字是X"
+            NAME_CHANGE_REQUEST — "名字改成X" "把名字改成X"
+            NAME_CHANGE_CONFIRM — 确认语句 "对，把名字改成X"
+            NICKNAME_SET — "你可以叫我X" "以后叫我X" "喊我X"
+            NONE — 不涉及身份修改
         """
+        import re
         msg = user_message.strip()
 
-        # 明确修改意图
-        change_patterns = [
-            r"以后叫我", r"把名字改成", r"名字改成", r"改成.*叫我",
-            r"对[，,]?\s*把名字", r"对[，,]?\s*叫我",
-            r"改个名字", r"换个名字", r"改名",
+        # 确认语句（最高优先级）—— 仅匹配名字修改确认
+        confirm_patterns = [
+            r"对[，,]?\s*把名字", r"对[，,]?\s*就叫",
+            r"嗯[，,]?\s*把名字", r"嗯[，,]?\s*就叫",
+            r"好[，,]?\s*把名字", r"好[，,]?\s*就叫",
         ]
-        import re
-        for pat in change_patterns:
+        for pat in confirm_patterns:
             if re.search(pat, msg):
                 return "NAME_CHANGE_CONFIRM"
 
-        # 普通自称
+        # 改名请求
+        change_patterns = [
+            r"把名字改成", r"名字改成", r"改成.*叫我",
+            r"改个名字", r"换个名字", r"改名",
+        ]
+        for pat in change_patterns:
+            if re.search(pat, msg):
+                return "NAME_CHANGE_REQUEST"
+
+        # 昵称设置
+        nickname_patterns = [
+            r"你可以叫我", r"以后叫我", r"可以叫我",
+            r"平时喊我", r"喊我", r"叫我",
+        ]
+        for pat in nickname_patterns:
+            if re.search(pat, msg):
+                return "NICKNAME_SET"
+
+        # 名字介绍（"我叫X" + "我是X"）
         if any(kw in msg for kw in ["我叫", "我的名字是", "我的名字叫"]):
-            return "NAME_SET"
+            return "NAME_INTRO"
+
+        # "我是X" — 排除角色词
+        role_words = [
+            "学生", "老师", "程序员", "工程师", "医生", "护士", "设计师",
+            "测试", "测试用户", "用户", "客户", "管理员",
+        ]
+        m = re.match(r"我是(.{1,6})$", msg)
+        if m:
+            x = m.group(1)
+            if x not in role_words:
+                return "NAME_INTRO"
 
         return "NONE"
 
@@ -150,9 +181,21 @@ class MemoryExtractor:
         # 最高优先级：检测 Intent
         intent = MemoryExtractor._detect_profile_intent(msg)
 
-        # 明确修改意图 → 最高置信度
+        # 确认 → 最高置信度
         if intent == "NAME_CHANGE_CONFIRM":
             return 9
+
+        # 明确修改请求 → 中高
+        if intent == "NAME_CHANGE_REQUEST":
+            return 8
+
+        # 名字介绍 → 中（需确认）
+        if intent == "NAME_INTRO":
+            return 7
+
+        # 昵称设置 → 中低
+        if intent == "NICKNAME_SET":
+            return 6
 
         # 确认语句
         confirmation_patterns = [
@@ -163,15 +206,7 @@ class MemoryExtractor:
             if re.search(pat, msg):
                 return 9
 
-        # 主动自我介绍
-        if any(kw in msg for kw in ["我叫", "我的名字是", "我的名字叫"]):
-            return 7
-
-        # 昵称/称呼偏好
-        if any(kw in msg for kw in ["你可以叫我", "叫我", "喊我"]):
-            return 6
-
-        # 普通提及身份
+        # 普通提及身份（如"我是学生"）
         if any(kw in msg for kw in ["我是", "我学", "我在", "我做", "我读", "我从事"]):
             return 5
 
@@ -208,13 +243,18 @@ class MemoryExtractor:
 
         result = self._parse(raw)
 
-        # 二次守卫：即使 LLM 返回了 Profile，也验证来源
+        # 二次守卫：验证来源
         result.profile_fields = self._validate_profile_fields(
             result.profile_fields, user_message
         )
 
-        # 计算每个字段的置信度 + 证据
+        # Intent 路由：NICKNAME_SET → nickname, NAME_INTRO → name
+        intent = self._detect_profile_intent(user_message)
         if result.has_profile_updates:
+            if intent == "NICKNAME_SET" and "name" in result.profile_fields:
+                # 路由 name → nickname
+                result.profile_fields["nickname"] = result.profile_fields.pop("name")
+            # 计算置信度 + 证据
             result.evidence = user_message[:500]
             for field_name in result.profile_fields:
                 result.profile_confidence[field_name] = self._compute_confidence(
@@ -248,9 +288,10 @@ class MemoryExtractor:
 
         # 必须有明确的身份声明标记
         identity_markers = [
-            "我叫", "我是", "我的名字", "你可以叫我", "我学", "我的专业",
-            "我在上学", "我在工作", "我在读", "我的生日", "我毕业于",
-            "我读", "我做", "我从事",
+            "我叫", "我是", "我的名字", "你可以叫我", "以后叫我", "喊我",
+            "叫我", "我学", "我的专业", "我在上学", "我在工作", "我在读",
+            "我的生日", "我毕业于", "我读", "我做", "我从事",
+            "把名字改成", "名字改成", "改个名字", "换个名字", "改名",
         ]
         has_marker = any(marker in msg for marker in identity_markers)
 
