@@ -315,15 +315,14 @@ class AICore:
             f"intent={intent.name}"
         )
 
-        # Pending Resolution：NAME_CHANGE_CONFIRM → 消费 pending → 写入 user_profiles
-        if intent == Intent.DAILY_CHAT:
-            from memory.extractor import MemoryExtractor
-            profile_intent = MemoryExtractor._detect_profile_intent(context.message)
-            if profile_intent == "NAME_CHANGE_CONFIRM":
-                await self._resolve_pending_identity(
-                    context.platform, context.platform_user_id,
-                    context.message,
-                )
+        # Pending Resolution：有 pending + 消息像确认 → 消费 pending
+        if await self._has_pending_identity(
+            context.platform, context.platform_user_id
+        ) and self._looks_like_confirmation(context.message):
+            await self._resolve_pending_identity(
+                context.platform, context.platform_user_id,
+                context.message,
+            )
 
         mem_ctx = await self.memory.get_context(
             platform=context.platform,
@@ -775,6 +774,42 @@ class AICore:
                 )
         except Exception as e:
             logger.warning(f"Profile 提取失败: {e}")
+
+    async def _has_pending_identity(
+        self, platform: str, platform_user_id: str
+    ) -> bool:
+        """检查是否有待确认的身份记录。"""
+        from database.models.profile import ProfileHistory
+        from database.session import AsyncSessionLocal
+        from sqlalchemy import select, func as sql_func
+
+        try:
+            async with AsyncSessionLocal.get_session() as session:
+                stmt = select(sql_func.count()).select_from(ProfileHistory).where(
+                    ProfileHistory.platform == platform,
+                    ProfileHistory.platform_user_id == platform_user_id,
+                    ProfileHistory.status == "pending",
+                )
+                result = await session.execute(stmt)
+                return result.scalar_one() > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _looks_like_confirmation(message: str) -> bool:
+        """检测消息是否为确认语句。"""
+        msg = message.strip()
+
+        # 短消息 + 确认关键词
+        if len(msg) > 15:
+            return False
+
+        confirm_words = [
+            "对", "就这个", "就叫", "就它", "就按",
+            "嗯", "可以", "行", "好", "是的", "没错",
+            "确定了", "就这样", "不改了",
+        ]
+        return any(kw in msg for kw in confirm_words)
 
     async def _resolve_pending_identity(
         self, platform: str, platform_user_id: str, confirm_msg: str
