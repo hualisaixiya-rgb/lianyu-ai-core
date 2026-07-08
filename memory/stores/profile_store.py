@@ -234,13 +234,8 @@ class ProfileStore:
                         results[key] = "applied"
 
                     elif str(new_value) == str(old_value):
-                        # 相同值 → 确认
-                        confirmed_conf = min(old_confidence + 1, 10)
-                        self._write_history(
-                            session, platform, platform_user_id,
-                            key, old_value, new_value, confirmed_conf, evidence, "confirmed",
-                        )
-                        results[key] = "confirmed"
+                        # 相同值 → 跳过，不创建 history
+                        results[key] = "skipped"
 
                     elif old_confidence >= 7 and confidence < 9:
                         # 已有高置信度身份 → 普通自称不可覆盖，需显式确认

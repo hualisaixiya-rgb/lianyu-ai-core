@@ -768,32 +768,17 @@ class AICore:
 
     @staticmethod
     def _is_identity_declaration(message: str) -> bool:
-        """检测是否为纯身份声明消息。
+        """检测是否为身份声明消息。
 
-        纯身份声明 = 以身份关键词开头，且去掉前缀后几乎无其他内容。
-        标记为 context_visible=False：数据库保留，但不注入 LLM 上下文。
-
-        混合消息（如"我叫夏离萤，今天去排练了"）仍正常注入。
+        任何以身份关键词开头的消息 → context_visible=False。
+        数据库保留完整记录（用于 Profile 提取），但不注入 LLM 上下文。
+        包括：NAME_SET + NAME_CHANGE_CONFIRM。
         """
-        import re
+        from memory.extractor import MemoryExtractor
+
         msg = message.strip()
-
-        identity_prefixes = [
-            "我叫", "我是", "我的名字", "以后叫我", "你可以叫我",
-            "把名字改成", "名字改成", "换个名字", "改名",
-            "对，我叫", "对，把名字",
-        ]
-        for prefix in identity_prefixes:
-            if msg.startswith(prefix):
-                # 去掉前缀后的剩余内容
-                remainder = msg[len(prefix):].strip()
-                # 去掉标点和语气词后，剩余 < 5 字 → 纯身份声明
-                cleaned = re.sub(r"[，,。！!、…\s]+", "", remainder)
-                if len(cleaned) <= 4:
-                    return True
-                return False
-
-        return False
+        intent = MemoryExtractor._detect_profile_intent(msg)
+        return intent in ("NAME_SET", "NAME_CHANGE_CONFIRM")
 
     @staticmethod
     def _should_extract(user_message: str, ai_reply: str) -> bool:
