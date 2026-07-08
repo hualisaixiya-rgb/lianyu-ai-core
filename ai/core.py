@@ -782,10 +782,18 @@ class AICore:
 
     @staticmethod
     def _should_extract(user_message: str, ai_reply: str) -> bool:
-        """Profile 提取守卫：只在用户明确自我介绍时提取。
+        """Profile 提取守卫。
 
-        允许：我叫xxx / 我是xxx / 我学xxx / 我喜欢xxx
-        禁止：问候 / 情绪 / 疑问句
+        NAME_SET（"我叫a"）→ 直接阻断，不触发任何提取。
+        NAME_CHANGE_CONFIRM（"以后叫我a"）→ 允许提取。
+        其他通过 _can_extract_profile 检查。
         """
         from memory.extractor import MemoryExtractor
+
+        intent = MemoryExtractor._detect_profile_intent(user_message)
+        if intent == "NAME_SET":
+            return False  # 阻断：未确认的身份试探不触发提取
+        if intent == "NAME_CHANGE_CONFIRM":
+            return True   # 允许：显式确认需提取
+
         return MemoryExtractor._can_extract_profile(user_message)
