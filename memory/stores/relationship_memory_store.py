@@ -17,7 +17,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select, func as sql_func
+from sqlalchemy import select, func as sql_func, text as sql_text
 from loguru import logger
 
 from database.models.relationship_memory import RelationshipMemory
@@ -72,6 +72,7 @@ class RelationshipMemoryStore:
 
             if existing:
                 existing.confidence = min(existing.confidence + 1, 10)
+                existing.update_count = existing.update_count + 1
                 existing.last_confirmed_at = datetime.now()
                 existing.decay_score = 100
                 existing.evidence = (
@@ -80,7 +81,7 @@ class RelationshipMemoryStore:
                 )[:500]
                 logger.debug(
                     f"RelationshipMemory 确认: [{platform}:{platform_user_id}] "
-                    f"confidence={existing.confidence}"
+                    f"confidence={existing.confidence} count={existing.update_count}"
                 )
                 return existing.id
             else:
@@ -101,6 +102,20 @@ class RelationshipMemoryStore:
                 )
                 return entry.id
 
+    async def mark_merged(
+        self, platform: str, platform_user_id: str, content: str
+    ) -> None:
+        """标记旧条目为已合并（decay_score=0，不删除）。"""
+        async with AsyncSessionLocal.get_session() as session:
+            await session.execute(
+                sql_text(
+                    "UPDATE relationship_memories SET decay_score=0 "
+                    "WHERE platform=:p AND platform_user_id=:u AND content LIKE :c"
+                ),
+                {"p": platform, "u": platform_user_id, "c": f"{content[:30]}%"},
+            )
+            await session.flush()
+
     # ================================================================
     # 读操作
     # ================================================================
@@ -119,6 +134,7 @@ class RelationshipMemoryStore:
                     RelationshipMemory.platform == platform,
                     RelationshipMemory.platform_user_id == platform_user_id,
                     RelationshipMemory.confidence >= MIN_CONFIDENCE,
+                    RelationshipMemory.decay_score > 0,
                 )
                 .order_by(
                     (RelationshipMemory.importance * RelationshipMemory.confidence).desc()
@@ -133,6 +149,7 @@ class RelationshipMemoryStore:
                     "content": r.content,
                     "importance": r.importance,
                     "confidence": r.confidence,
+                    "update_count": r.update_count,
                 }
                 for r in rows
             ]
@@ -172,7 +189,7 @@ class RelationshipMemoryStore:
 
     @staticmethod
     def format_for_prompt(entries: list[dict]) -> str:
-        """将关系理解格式化为 Prompt 注入文本。
+        """将关系理解格式化为 Prompt 注入文本（V3.1 升级）。
 
         Args:
             entries: 最近的关系理解列表
@@ -183,12 +200,14 @@ class RelationshipMemoryStore:
         if not entries:
             return ""
 
-        lines = ["【长期关系理解】（关系模式，不是身份事实）"]
+        lines = ["【你逐渐理解到】"]
         for entry in entries:
-            confidence_note = ""
-            if entry.get("confidence", 5) >= 8:
-                confidence_note = "（已多次确认）"
-            lines.append(f"- {entry['content']}{confidence_note}")
+            count_note = ""
+            if entry.get("update_count", 1) >= 5:
+                count_note = f"（已验证 {entry['update_count']} 次）"
+            elif entry.get("update_count", 1) >= 3:
+                count_note = f"（{entry['update_count']} 次观察）"
+            lines.append(f"- {entry['content']}{count_note}")
 
         return "\n".join(lines)
 

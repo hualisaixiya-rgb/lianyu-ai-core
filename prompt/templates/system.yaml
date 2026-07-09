@@ -72,6 +72,8 @@ system: |
 
   {relationship_memory_context}
 
+  {emotion_trend}
+
   {timeline_context}
 
   {world_state_context}

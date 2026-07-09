@@ -366,12 +366,19 @@ class AICore:
             summary_for_prompt = session.summary
             timeline_for_prompt = timeline_context
 
-        # 6.5. 关系理解（V3 新增）
+        # 6.5. 关系理解 + 情绪趋势（V3.1）
         relationship_memory_context = ""
+        emotion_trend = ""
         try:
             relationship_memory_context = await self.memory.get_relationship_memory(
                 context.platform, context.platform_user_id
             )
+            # 情绪趋势（纯规则，零 Token）
+            from memory.relationship_growth import get_emotion_trend
+            tl_entries = await self.relationship.timeline.get_recent(
+                context.platform, context.platform_user_id, days=7
+            )
+            emotion_trend = get_emotion_trend(tl_entries)
         except Exception:
             pass
 
@@ -383,6 +390,7 @@ class AICore:
             relationship_tone=relationship_tone,
             timeline_context=timeline_for_prompt,
             relationship_memory_context=relationship_memory_context,
+            emotion_trend=emotion_trend,
             intent=intent,
             world_state=session.world_state,
             active_topics=session.active_topics,
@@ -444,10 +452,16 @@ class AICore:
                 self._summarize_async(context, session)
             )
 
-        # 10.6. Timeline 生成：Summary 更新后异步生成今日 Timeline
+        # 10.6. Timeline 生成 + Growth Cycle（后台异步）
         if session.summary and len(session.summary) > 20:
             asyncio.create_task(
                 self._generate_timeline_async(context, session.summary)
+            )
+            # Growth: Timeline >= 5 条时触发 Pattern Discovery + Merge
+            asyncio.create_task(
+                self._trigger_growth_if_needed(
+                    context.platform, context.platform_user_id
+                )
             )
 
         # 11. 异步提取 Profile（不阻塞本次回复）
@@ -624,6 +638,7 @@ class AICore:
         relationship_tone: str = "",
         timeline_context: str = "",
         relationship_memory_context: str = "",
+        emotion_trend: str = "",
         intent: Intent | None = None,
         world_state: WorldState | None = None,
         active_topics: ActiveTopics | None = None,
@@ -681,6 +696,7 @@ class AICore:
             relationship_tone=relationship_tone,
             timeline_context=timeline_block,
             relationship_memory_context=relationship_memory_context,
+            emotion_trend=emotion_trend,
             world_state_context=world_state_block,
             active_topics_context=topics_block,
         )
@@ -712,6 +728,28 @@ class AICore:
             )
         except Exception as e:
             logger.warning(f"后台摘要失败: {e}")
+
+    async def _trigger_growth_if_needed(
+        self, platform: str, platform_user_id: str
+    ) -> None:
+        """如果 Timeline 积累 >= 5 条，触发 Growth Cycle（后台异步）。"""
+        try:
+            entries = await self.relationship.timeline.get_recent(
+                platform, platform_user_id, days=30
+            )
+            if len(entries) >= 5:
+                from memory.relationship_growth import RelationshipGrowth
+                growth = RelationshipGrowth(self.memory.rel_memory_store)
+                result = await growth.run_growth_cycle(
+                    platform, platform_user_id, entries, self.provider,
+                )
+                if result["patterns"] > 0 or result["merged"] > 0:
+                    logger.info(
+                        f"Growth cycle: [{platform}:{platform_user_id}] "
+                        f"patterns={result['patterns']} merged={result['merged']}"
+                    )
+        except Exception as e:
+            logger.warning(f"Growth trigger 失败: {e}")
 
     async def _generate_timeline_async(
         self, context: ChatContext, summary: str

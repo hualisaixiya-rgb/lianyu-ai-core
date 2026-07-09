@@ -54,6 +54,9 @@ class RelationshipMemory(Base):
     """可信程度 1-10。越高越确定"""
 
     # ---- 生命周期 ----
+    update_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    """更新次数。每次合并或确认 +1"""
+
     last_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     """最后一次被新证据确认的时间"""
 
