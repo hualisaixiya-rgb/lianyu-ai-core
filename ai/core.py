@@ -835,17 +835,24 @@ class AICore:
 
     @staticmethod
     def _looks_like_confirmation(message: str) -> bool:
-        """检测消息是否为确认语句。"""
+        """检测消息是否为身份确认语句。"""
         msg = message.strip()
 
-        # 短消息 + 确认关键词
+        # 排除普通问候语
+        greetings = {"早上好", "上午好", "中午好", "下午好", "晚上好",
+                     "你好", "你好呀", "嗨", "早"}
+        if msg in greetings:
+            return False
+
         if len(msg) > 15:
             return False
 
+        # 只接受明确的确认语义
         confirm_words = [
-            "对", "就这个", "就叫", "就它", "就按",
-            "嗯", "可以", "行", "好", "是的", "没错",
+            "对", "就叫", "就这个", "就它", "就按",
+            "嗯", "可以", "行", "是的", "没错",
             "确定了", "就这样", "不改了",
+            "好的", "记住了",
         ]
         return any(kw in msg for kw in confirm_words)
 
