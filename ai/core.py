@@ -934,7 +934,8 @@ class AICore:
             for pat in [r"我叫(.+)", r"我的名字[是叫](.+)", r"我是(.+)"]:
                 m = re.match(pat, msg)
                 if m:
-                    value = m.group(1).strip().rstrip("，,。！!")
+                    raw = m.group(1).strip()
+                    value = re.split(r"[，,。！!？?、…\s]+", raw)[0].strip()
                     break
         elif intent == "NICKNAME_SET":
             field_name = "nickname"
@@ -942,8 +943,8 @@ class AICore:
                 m = re.search(pat, msg)
                 if m:
                     raw = m.group(1).strip()
-                    # 去掉尾部语气词
-                    value = re.sub(r"[吧呀啊哦嘛呢]$", "", raw).strip()
+                    raw = re.split(r"[，,。！!？?、…\s]+", raw)[0].strip()
+                    value = re.sub(r"[吧呀啊哦嘛呢吗]$", "", raw).strip()
                     break
         elif intent == "NAME_CHANGE_REQUEST":
             field_name = "name"
@@ -951,7 +952,8 @@ class AICore:
                        r"改名[为叫]?(.+)"]:
                 m = re.match(pat, msg)
                 if m:
-                    value = m.group(1).strip().rstrip("，,。！!吧")
+                    raw = m.group(1).strip()
+                    value = re.split(r"[，,。！!？?、…\s]+", raw)[0].strip()
                     break
 
         if not value or len(value) > 20:
