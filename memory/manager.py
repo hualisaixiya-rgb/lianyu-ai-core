@@ -214,6 +214,13 @@ class MemoryManager:
                         f"Profile 已更新: [{platform}:{platform_user_id}] "
                         f"+{profile_count} 字段: {list(results.keys())}"
                     )
+                    try:
+                        from archive.memory_archive import record as mem_record
+                        mem_record("update", "profile",
+                                   str(list(results.keys())), "extractor",
+                                   platform=platform, user_id=platform_user_id)
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning(f"Profile 存储失败: {e}")
 
@@ -243,6 +250,14 @@ class MemoryManager:
                 f"记忆提取完成: [{platform}:{platform_user_id}] "
                 f"Profile +{profile_count} | LongMemory +{memory_count}"
             )
+            if memory_count > 0:
+                try:
+                    from archive.memory_archive import record as mem_record
+                    mem_record("create", "long_memory",
+                               f"+{memory_count} entries", "extractor",
+                               platform=platform, user_id=platform_user_id)
+                except Exception:
+                    pass
 
         return ExtractResult(
             profile_count=profile_count,

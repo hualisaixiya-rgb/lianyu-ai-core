@@ -268,6 +268,13 @@ class TimelineStore:
                 summary, emotion, relationship_meaning, topic, importance,
             )
             logger.info(f"Timeline 生成: [{platform}:{platform_user_id}] {date_str} importance={importance}")
+            try:
+                from archive.memory_archive import record as mem_record
+                mem_record("create", "timeline", summary[:100],
+                           "summarizer", importance,
+                           platform=platform, user_id=platform_user_id)
+            except Exception:
+                pass
             return {
                 "summary": summary,
                 "emotion": emotion,

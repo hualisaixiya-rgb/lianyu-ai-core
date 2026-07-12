@@ -427,6 +427,11 @@ class AICore:
             return ChatResponse(content=f"配置错误：{e}")
         except RuntimeError as e:
             logger.error(f"LLM 调用失败: {e}")
+            try:
+                from archive.error_archive import record as err_record
+                err_record("ai/core.py", f"LLM 调用失败: {e}")
+            except Exception:
+                pass
             return ChatResponse(content="……")
 
         # 9. 清洗括号 → 保存纯净版本，打破括号自循环
@@ -468,6 +473,17 @@ class AICore:
         asyncio.create_task(
             self._extract_profile_async(context, reply)
         )
+
+        # 对话归档（独立模块，不影响聊天流程）
+        try:
+            from archive.conversation_archive import save as archive_save
+            archive_save(
+                context.platform, context.platform_user_id,
+                context.username or "未知",
+                context.message, reply,
+            )
+        except Exception:
+            pass
 
         logger.info(
             f"[{context.platform}] 回复: "

@@ -74,6 +74,12 @@ class OpenAICompatibleProvider:
                 temperature=self.temperature,
             )
         except Exception as e:
+            try:
+                from archive.error_archive import record as err_record
+                err_record("ai/providers/openai_compatible.py",
+                          f"LLM API 调用失败: {e}")
+            except Exception:
+                pass
             raise RuntimeError(f"LLM API 调用失败: {e}") from e
 
         # 提取回复文本
