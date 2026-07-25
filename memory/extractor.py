@@ -403,10 +403,14 @@ class MemoryExtractor:
                         importance = min(max(int(importance), 1), 10)
                     else:
                         importance = 5
+                    # V3.1: 标记来源。LLM 提取的记忆默认为 user_statement
+                    # 后续确认流程可升级为 user_confirmed
+                    source = mem.get("source", "user_statement")
                     result.memories.append({
                         "key": mem["key"].strip(),
                         "value": mem["value"].strip(),
                         "importance": importance,
+                        "source": source,
                     })
 
         return result

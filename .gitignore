@@ -49,3 +49,6 @@ htmlcov/
 
 # uv
 uv.lock
+
+# Runtime archives
+archives/

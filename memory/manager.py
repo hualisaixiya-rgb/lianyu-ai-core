@@ -232,13 +232,15 @@ class MemoryManager:
                     logger.debug(f"跳过身份类记忆: {mem.get('key')}")
                     continue
                 try:
+                    # V3.1: source 从 extractor 透传，不再硬编码
+                    mem_source = mem.get("source", "user_statement")
                     await self.store.add(
                         platform=platform,
                         platform_user_id=platform_user_id,
                         key=mem["key"],
                         value=mem["value"],
                         importance=mem.get("importance", 5),
-                        source="user_explicit",
+                        source=mem_source,
                         evidence=user_message[:200],
                     )
                     memory_count += 1

@@ -8,8 +8,9 @@
 4. 将回复发送回 Telegram
 """
 
-from telegram import Update
+from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 from ai.core import AICore, ChatContext
 from config.settings import get_settings
@@ -41,6 +42,10 @@ class TelegramBot:
     def _build_app(self) -> Application:
         """构建 python-telegram-bot Application 实例。
 
+        使用显式 HTTPXRequest 配置：
+        - 超时从默认 5s 提升到 15~30s（适应代理链路延迟）
+        - 连接池从默认 256 降到 8（避免代理断开后复用死连接）
+
         Returns:
             配置好的 Application 实例
         """
@@ -50,15 +55,24 @@ class TelegramBot:
                 "Telegram Bot Token 未配置。请设置环境变量 TELEGRAM_BOT_TOKEN。"
             )
 
-        builder = Application.builder().token(token)
-
-        # 代理配置（国内需要代理访问 Telegram API）
+        # 构建自定义 HTTPXRequest（替代 builder.proxy() 的默认配置）
+        request_kwargs = {}
         proxy_url = self.settings.telegram.proxy
         if proxy_url:
-            builder = builder.proxy(proxy_url)
+            request_kwargs["proxy"] = proxy_url
             logger.info(f"Telegram 使用代理: {proxy_url}")
 
-        app = builder.build()
+        request = HTTPXRequest(
+            connection_pool_size=8,       # 默认 256 → 8，减少代理死连接命中
+            connect_timeout=15.0,          # 默认 5s → 15s，代理链路需要更长时间
+            read_timeout=30.0,             # 默认 5s → 30s，Telegram API 可能延迟
+            write_timeout=15.0,            # 默认 5s → 15s
+            pool_timeout=5.0,              # 默认 1s → 5s
+            **request_kwargs,
+        )
+
+        bot = Bot(token=token, request=request)
+        app = Application.builder().bot(bot).build()
 
         # 注册命令处理器
         app.add_handler(CommandHandler("start", self._handle_start))
@@ -156,11 +170,14 @@ class TelegramBot:
         except Exception:
             pass  # Agent 未初始化时静默跳过
 
-        # 发送"正在输入..."状态
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action="typing",
-        )
+        # 发送"正在输入..."状态（独立异常处理，失败不影响主流程）
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id,
+                action="typing",
+            )
+        except Exception:
+            pass  # 代理波动时 send_chat_action 可能超时，不阻塞聊天
 
         # 构建 ChatContext 并调用 AI Core
         chat_context = ChatContext(

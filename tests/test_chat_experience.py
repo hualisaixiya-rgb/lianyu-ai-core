@@ -56,14 +56,26 @@ def test_should_extract_skip_mood():
     assert not core._should_extract("今天好累呀", "累了就休息吧。")
 
 
-def test_should_extract_allow_fact():
-    """明确事实 → 可以提取。"""
+def test_should_extract_block_name_intro():
+    """NAME_INTRO → 不直接提取，走 Pending Identity 流程。"""
     from ai.core import AICore
     core = AICore()
+    # "我叫X" 触发 NAME_INTRO → 阻断，不进入 _should_extract
     assert core._should_extract(
         "我叫夏离萤，学微电子的",
         "你好呀，夏离萤。微电子很有意思。"
-    )
+    ) is False
+
+
+def test_should_extract_allow_explicit_confirm():
+    """NAME_CHANGE_CONFIRM 显式确认 → 允许提取。"""
+    from ai.core import AICore
+    core = AICore()
+    # "对，把名字改成 X" → NAME_CHANGE_CONFIRM → 放行
+    assert core._should_extract(
+        "对，把名字改成夏离萤",
+        "好的，已更新你的名字。"
+    ) is True
 
 
 # ================================================================

@@ -28,9 +28,12 @@ class OpenAICompatibleProvider:
         self.max_tokens = settings.ai.max_tokens
         self.temperature = settings.ai.temperature
 
+        # V3.1: 60 秒超时，避免网络异常时无限等待
+        import httpx
         self.client = AsyncOpenAI(
             base_url=settings.ai.base_url,
             api_key=settings.ai.api_key,
+            timeout=httpx.Timeout(60.0, connect=10.0),
         )
 
     async def chat(
