@@ -4,5 +4,6 @@
 """
 
 from tools.builtin.calculator import calculator
+from tools.builtin.read_image import read_image
 
-__all__ = ["calculator"]
+__all__ = ["calculator", "read_image"]

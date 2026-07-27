@@ -75,6 +75,33 @@ class CharacterSettings(BaseSettings):
     """当前加载的角色名，对应 character/characters/ 目录下的 YAML 文件名。"""
 
 
+class VisionSettings(BaseSettings):
+    """视觉模型配置（用于 read_image 工具）。
+
+    由于主聊天模型（如 DeepSeek）可能不支持视觉输入，
+    read_image 工具使用独立的视觉模型来分析图片。
+
+    支持的视觉模型举例：
+      - gpt-4o / gpt-4o-mini（OpenAI）
+      - qwen-vl-plus / qwen-vl-max（通义千问，base_url 填 DashScope 地址）
+      - glm-4v（智谱，base_url 填智谱 API 地址）
+    """
+
+    model_config = SettingsConfigDict(env_prefix="VISION_")
+
+    base_url: str = "https://api.openai.com/v1"
+    """视觉模型 API 地址（OpenAI 兼容格式）"""
+
+    api_key: str = ""
+    """视觉模型 API Key"""
+
+    model: str = "gpt-4o-mini"
+    """视觉模型名称"""
+
+    max_tokens: int = 1024
+    """视觉模型最大输出 token 数"""
+
+
 class TTSSettings(BaseSettings):
     """TTS 语音合成配置。"""
 
@@ -120,6 +147,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = DatabaseSettings()
     app: AppSettings = AppSettings()
     character: CharacterSettings = CharacterSettings()
+    vision: VisionSettings = VisionSettings()
     tts: TTSSettings = TTSSettings()
 
 
