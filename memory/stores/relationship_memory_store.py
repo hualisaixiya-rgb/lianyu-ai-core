@@ -200,7 +200,7 @@ class RelationshipMemoryStore:
         if not entries:
             return ""
 
-        lines = ["【你逐渐理解到】"]
+        lines = ["【关于这段关系】"]
         for entry in entries:
             count_note = ""
             if entry.get("update_count", 1) >= 5:

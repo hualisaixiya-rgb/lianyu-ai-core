@@ -104,7 +104,13 @@ class MetricsStore:
 # ================================================================
 
 # Timeline 注入上限
-MAX_TIMELINE_DAYS = 7
+MAX_TIMELINE_DAYS = 5
+
+# V3.5 版本分界线（过渡方案）
+# 此日期之后的 Timeline 由 V3.5 Prompt 生成（主语"对方"）
+# 此日期之前的 Timeline 由 V3 Prompt 生成（主语"你们"）
+# TODO: 未来迁移到显式 source_version 字段，替代日期判断
+V35_TIMELINE_CUTOFF = "2026-07-18"
 
 # Timeline 生成 Prompt（结构化提取）
 TIMELINE_PROMPT = """\
@@ -337,13 +343,27 @@ class TimelineStore:
 
     @staticmethod
     def format_for_prompt(entries: list[dict]) -> str:
-        """将 Timeline 格式化为 Prompt 注入文本（V3 升级）。"""
+        """将 Timeline 格式化为 Prompt 注入文本（V3.5 版本优先级）。
+
+        V3.5 条目（date >= cutoff）优先展示，V3 条目作为补充。
+        最多注入 MAX_TIMELINE_DAYS 条。
+        """
         if not entries:
             return ""
 
-        lines = ["【最近关系事件】"]
+        # 分离 V3.5 和 V3
+        v35_entries = [e for e in entries if e.get("date", "") >= V35_TIMELINE_CUTOFF]
+        v3_entries = [e for e in entries if e.get("date", "") < V35_TIMELINE_CUTOFF]
 
-        for entry in entries[:MAX_TIMELINE_DAYS]:
+        # V3.5 优先，V3 补充至上限
+        selected = v35_entries[:MAX_TIMELINE_DAYS]
+        remaining = MAX_TIMELINE_DAYS - len(selected)
+        if remaining > 0:
+            selected += v3_entries[:remaining]
+
+        lines = ["【近期事件记录】"]
+
+        for entry in selected:
             date_short = entry["date"][-5:]  # "07-07"
             line = f"- {date_short}: {entry['summary']}"
             if entry.get("emotion"):

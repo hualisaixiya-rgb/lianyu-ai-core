@@ -90,11 +90,12 @@ def test_prompt_no_negative_lists():
         identity="", current_time="now", world_context="",
         profile_context="", memory_context="", conversation_summary="",
         relationship_tone="", timeline_context="",
+        relationship_memory_context="", emotion_trend="",
         world_state_context="", active_topics_context="",
     )
     # 正向关键词
     assert "安静" in r
-    assert "优先回应当前" in r
+    assert "日常聊天" in r
     # 不应该有大段 ❌ 列表
     assert r.count("❌") <= 2, f"Too many ❌: {r.count('❌')}"
 
@@ -107,10 +108,11 @@ def test_prompt_has_memory_safety():
         identity="", current_time="now", world_context="",
         profile_context="", memory_context="", conversation_summary="",
         relationship_tone="", timeline_context="",
+        relationship_memory_context="", emotion_trend="",
         world_state_context="", active_topics_context="",
     )
     assert "没有记录的事" in r
-    assert "不假装记得" in r
+    assert "不编造" in r
 
 
 # ================================================================

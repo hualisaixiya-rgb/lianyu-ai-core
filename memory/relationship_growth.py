@@ -177,7 +177,7 @@ class RelationshipGrowth:
 def get_emotion_trend(timeline_entries: list[dict]) -> str:
     """从最近 Timeline 中提取情绪趋势（纯规则，零 Token）。
 
-    如果最近 3 条 emotion 一致 → 返回趋势提示。
+    V3.5: 从要求 3/3 完全一致 → ≥2/3 一致即触发。
     """
     if len(timeline_entries) < 3:
         return ""
@@ -187,9 +187,11 @@ def get_emotion_trend(timeline_entries: list[dict]) -> str:
     if len(emotions) < 3:
         return ""
 
-    # 最近 3 次情绪一致
-    if emotions[0] == emotions[1] == emotions[2]:
-        emotion = emotions[0]
+    # V3.5: ≥2/3 一致即触发
+    from collections import Counter
+    most_common = Counter(emotions).most_common(1)[0]
+    if most_common[1] >= 2:
+        emotion = most_common[0]
         trend_map = {
             "疲惫": "最近对方似乎一直比较疲惫。请降低说教，增加陪伴。",
             "开心": "最近对方心情不错。可以更轻松地聊天。",

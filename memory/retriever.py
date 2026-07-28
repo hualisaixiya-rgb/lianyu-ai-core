@@ -108,27 +108,25 @@ class MemoryRetriever:
         query: str | None,
         top_k: int,
     ) -> list:
-        """搜索记忆，回退到全部列表。
+        """搜索记忆，无匹配时返回空（V3.5.1: 移除全量 fallback）。
 
         Args:
             query: 搜索查询（为 None 时直接返回全部）
             top_k: 返回数量上限
 
         Returns:
-            排序后的 MemoryItem 列表
+            排序后的 MemoryItem 列表。无匹配时为空列表。
         """
         if query:
             items = await self.memory_store.search(
                 platform, platform_user_id, query, top_k
             )
-            # 如果搜索无结果，回退到最近记忆
-            if not items:
-                items = await self.memory_store.list_all(
-                    platform, platform_user_id
+            # V3.5.1: 不再 fallback 到 list_all。search 返回空 → 无相关记忆。
+            if items:
+                logger.debug(
+                    f"Memory retrieval: query={query[:30]!r} "
+                    f"matched={len(items)} injected={min(len(items), top_k)}"
                 )
-                if items:
-                    items.sort(key=lambda x: x.importance, reverse=True)
-                    items = items[:top_k]
         else:
             items = await self.memory_store.list_all(
                 platform, platform_user_id

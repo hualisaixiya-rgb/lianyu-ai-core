@@ -343,15 +343,21 @@ class AICore:
             summary_for_prompt = ""
             timeline_for_prompt = ""
 
-            # 硬注入：从 Profile 中提取名字，直接告诉模型
-            profile_name = await self._get_confirmed_name(
+            # V3.5: 三级回退 confirmed → candidate → none
+            profile_name, name_level = await self._get_confirmed_name(
                 context.platform, context.platform_user_id
             )
             if profile_name:
-                mem_ctx.profile_context = (
-                    f"【IDENTITY OVERRIDE】对方的名字（已确认）是：{profile_name}。"
-                    "你的回复必须使用这个名字。不要使用聊天记录中看到的任何其他名字。"
-                )
+                if name_level == "confirmed":
+                    mem_ctx.profile_context = (
+                        f"【IDENTITY OVERRIDE】对方的名字（已确认）是：{profile_name}。"
+                        "你的回复必须使用这个名字。不要使用聊天记录中看到的任何其他名字。"
+                    )
+                else:  # candidate
+                    mem_ctx.profile_context = (
+                        f"【IDENTITY OVERRIDE】对方曾自称：{profile_name}。"
+                        "这尚未确认。如果对方最新的说法不同，以最新为准。"
+                    )
         elif intent == Intent.RECALL_PAST:
             # 回忆过去：用 Timeline + Profile，不用当前 Summary
             summary_for_prompt = ""
@@ -366,21 +372,22 @@ class AICore:
             summary_for_prompt = session.summary
             timeline_for_prompt = timeline_context
 
-        # 6.5. 关系理解 + 情绪趋势（V3.1）
+        # 6.5. 关系理解 + 情绪趋势（V3.5.1: 仅 DEEP_TALK / RECALL_PAST 注入）
         relationship_memory_context = ""
         emotion_trend = ""
-        try:
-            relationship_memory_context = await self.memory.get_relationship_memory(
-                context.platform, context.platform_user_id
-            )
-            # 情绪趋势（纯规则，零 Token）
-            from memory.relationship_growth import get_emotion_trend
-            tl_entries = await self.relationship.timeline.get_recent(
-                context.platform, context.platform_user_id, days=7
-            )
-            emotion_trend = get_emotion_trend(tl_entries)
-        except Exception:
-            pass
+        if intent in (Intent.DEEP_TALK, Intent.RECALL_PAST):
+            try:
+                relationship_memory_context = await self.memory.get_relationship_memory(
+                    context.platform, context.platform_user_id
+                )
+                # 情绪趋势（纯规则，零 Token）
+                from memory.relationship_growth import get_emotion_trend
+                tl_entries = await self.relationship.timeline.get_recent(
+                    context.platform, context.platform_user_id, days=7
+                )
+                emotion_trend = get_emotion_trend(tl_entries)
+            except Exception:
+                pass
 
         # 7. 构建系统 Prompt
         system_prompt = self._build_system_prompt(
@@ -684,12 +691,12 @@ class AICore:
         # 摘要（仅非问候/身份确认时注入）
         summary_block = ""
         if conversation_summary:
-            summary_block = f"你们之前聊过：\n{conversation_summary}"
+            summary_block = f"【之前的对话】\n{conversation_summary}"
 
         # Timeline（仅回忆过去时注入）
         timeline_block = ""
         if timeline_context:
-            timeline_block = f"【你们一起经历过……】\n{timeline_context}"
+            timeline_block = f"【近期事件记录】\n{timeline_context}"
 
         # World State
         world_state_block = ""
@@ -1024,17 +1031,57 @@ class AICore:
 
     async def _get_confirmed_name(
         self, platform: str, platform_user_id: str
-    ) -> str | None:
-        """获取已确认的用户姓名（仅 applied，不含 pending）。"""
+    ) -> tuple[str | None, str]:
+        """获取用户姓名及其确认级别（V3.5）。
+
+        三级回退：
+        1. user_profiles.name → 返回 ("name", "confirmed")
+        2. profile_history 最近 7 天的 NAME_INTRO/NICKNAME_SET pending
+           → 返回 ("name", "candidate")
+        3. 都未找到 → 返回 (None, "")
+
+        candidate 有时限：只取 7 天内最新的 pending 记录，避免旧身份污染。
+        """
+        from datetime import datetime, timedelta
+
+        # L1: confirmed（user_profiles）
         try:
             profile = await self.memory.profile_store.get(
                 platform, platform_user_id
             )
             if profile and profile.name:
-                return profile.name
+                return (profile.name, "confirmed")
         except Exception:
             pass
-        return None
+
+        # L2: candidate（最近 7 天的 pending profile_history）
+        try:
+            from database.models.profile import ProfileHistory
+            from database.session import AsyncSessionLocal
+            from sqlalchemy import desc, select
+
+            cutoff = datetime.now() - timedelta(days=7)
+            async with AsyncSessionLocal.get_session() as session:
+                stmt = (
+                    select(ProfileHistory)
+                    .where(
+                        ProfileHistory.platform == platform,
+                        ProfileHistory.platform_user_id == platform_user_id,
+                        ProfileHistory.field_name.in_(["name", "nickname"]),
+                        ProfileHistory.status == "pending",
+                        ProfileHistory.created_at >= cutoff,
+                    )
+                    .order_by(desc(ProfileHistory.created_at))
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if row and row.new_value:
+                    return (row.new_value, "candidate")
+        except Exception:
+            pass
+
+        return (None, "")
 
     @staticmethod
     def _is_identity_declaration(message: str) -> bool:

@@ -3,6 +3,8 @@
 基于 SQLAlchemy 的 MemoryRecord 模型实现 MemoryStore 接口。
 """
 
+import re
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,37 @@ from database.models.memory import MemoryRecord
 from database.session import AsyncSessionLocal
 from memory.base import MemoryItem, MemoryStore
 from loguru import logger
+
+
+def _tokenize(text: str) -> list[str]:
+    """简单中文 2-gram 分词 + 英文空格分词。
+
+    "排练好累" → ["排练", "练好", "好累", "排练好累"]
+    "hello world" → ["hello", "world", "hello world"]
+
+    不做复杂 NLP，最小可行性实现。
+    """
+    stripped = text.strip()
+    if not stripped:
+        return []
+
+    tokens = [stripped]  # 原始短语作为单个 token
+
+    # 中文 2-gram
+    if re.search(r"[一-鿿]", stripped):
+        chars = list(stripped)
+        for i in range(len(chars) - 1):
+            bigram = "".join(chars[i:i + 2])
+            if bigram not in tokens:
+                tokens.append(bigram)
+
+    # 英文/数字空格分词
+    alpha_words = re.findall(r"[a-zA-Z0-9]+", stripped)
+    for w in alpha_words:
+        if w.lower() not in [t.lower() for t in tokens]:
+            tokens.append(w.lower())
+
+    return tokens
 
 
 class SQLiteMemoryStore(MemoryStore):
@@ -68,14 +101,13 @@ class SQLiteMemoryStore(MemoryStore):
         query: str,
         top_k: int = 5,
     ) -> list[MemoryItem]:
-        """搜索相关记忆。
+        """搜索相关记忆（V3.5 相关性评分）。
 
-        当前使用简单的 LIKE 关键词匹配。
-        未来可替换为向量相似度搜索。
+        搜索范围：key + value + evidence
+        评分：关键词命中 × 2 + source 权重 + 时间加分
+        无命中时返回空列表，不 fallback 全量注入。
         """
         async with AsyncSessionLocal.get_session() as session:
-            # 将查询单词用于模糊匹配
-            keywords = query.strip().split()
             stmt = (
                 select(MemoryRecord)
                 .where(
@@ -83,20 +115,47 @@ class SQLiteMemoryStore(MemoryStore):
                     MemoryRecord.platform_user_id == platform_user_id,
                 )
                 .order_by(MemoryRecord.importance.desc())
-                .limit(top_k * 2)  # 多取一些用于过滤
+                .limit(top_k * 3)  # 多取一些用于评分过滤
             )
             result = await session.execute(stmt)
             records = result.scalars().all()
 
-            # 简单的关键词评分过滤
+            # V3.5: 简单中文 2-gram 分词 + 英文空格分词
+            keywords = _tokenize(query)
+
+            # V3.5: source 权重（小权重，优先相关性）
+            SOURCE_WEIGHT = {"user_confirmed": 2, "user_statement": 1}
+
             items: list[MemoryItem] = []
             for record in records:
-                # 如果有关键词匹配，加分
-                score = 0
-                search_text = f"{record.key} {record.value}".lower()
+                # 搜索范围：key + value + evidence
+                evidence = record.evidence or ""
+                search_text = f"{record.key} {record.value} {evidence}".lower()
+
+                # 关键词命中
+                hit_count = 0
                 for kw in keywords:
                     if kw.lower() in search_text:
-                        score += 1
+                        hit_count += 1
+
+                # 无命中 → 不加入结果
+                if hit_count == 0:
+                    continue
+
+                # 评分：相关性为主，source 为辅
+                score = hit_count * 2
+                score += SOURCE_WEIGHT.get(record.source, 0)
+
+                # 时间加分：7 天内创建的记忆 +2
+                from datetime import datetime, timezone, timedelta
+                if record.created_at:
+                    now = datetime.now()
+                    if record.created_at.tzinfo is None:
+                        record_dt = record.created_at.replace(tzinfo=None)
+                    else:
+                        record_dt = record.created_at.replace(tzinfo=timezone.utc).astimezone(None).replace(tzinfo=None)
+                    if (now - record_dt) < timedelta(days=7):
+                        score += 2
 
                 items.append(
                     MemoryItem(
@@ -106,7 +165,7 @@ class SQLiteMemoryStore(MemoryStore):
                     )
                 )
 
-            # 按（重要性 + 关键词匹配分）降序排列，取 top_k
+            # V3.5: 无命中 → 返回空，不 fallback 全量注入
             items.sort(key=lambda x: x.importance, reverse=True)
             return items[:top_k]
 
