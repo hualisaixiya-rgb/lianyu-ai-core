@@ -31,6 +31,28 @@ $LastHeadFile = "$ProjectRoot\.deploy.last_head"
 # ---- NSSM service list ----
 $Services = @("LianyuAI", "LianyuTelegram")
 
+# ---- Tool auto-detection (SYSTEM account may not have user PATH) ----
+$UvExe = $null
+$uvCandidates = @(
+    "uv",                                          # PATH
+    "C:\Users\huali\.local\bin\uv.exe",            # default uv installer location
+    "$env:USERPROFILE\.local\bin\uv.exe",          # current user
+    "$ProjectRoot\.venv\Scripts\uv.exe"            # project venv (if uv self-installed)
+)
+foreach ($candidate in $uvCandidates) {
+    try {
+        $check = cmd /c "$candidate --version 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            $UvExe = $candidate
+            break
+        }
+    } catch {}
+}
+if (-not $UvExe) {
+    Write-Host "[FATAL] uv not found. Checked: $($uvCandidates -join ', ')"
+    exit 1
+}
+
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Message"
@@ -120,6 +142,7 @@ Write-Log "========== START DEPLOY =========="
 # 0. Enter project directory
 Set-Location $ProjectRoot
 Write-Log "Project root: $ProjectRoot"
+Write-Log "uv: $UvExe"
 
 # 0.5 Get current HEAD (for rollback)
 $rawHead = cmd /c "git rev-parse HEAD 2>&1"
@@ -186,7 +209,7 @@ Write-Log "  New HEAD: $($NewHead.Substring(0, [Math]::Min(8, $NewHead.Length)))
 # 2. uv sync
 Write-Log "[2/5] uv sync --no-dev..."
 try {
-    $uvOutput = cmd /c "uv sync --no-dev 2>&1"
+    $uvOutput = cmd /c "$UvExe sync --no-dev 2>&1"
     $uvExit = $LASTEXITCODE
     foreach ($line in $uvOutput) { Write-Log "  $line" }
     if ($uvExit -ne 0) {
