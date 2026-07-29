@@ -57,9 +57,26 @@ $NssmExe = $null
 $nssmCandidates = @(
     "nssm",                                        # PATH
     "$env:ProgramFiles\nssm\win64\nssm.exe",
-    "${env:ProgramFiles(x86)}\nssm\win64\nssm.exe",
-    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\NSSM.NSSM_Microsoft.Winget.Source_8wekyb3d8bbwe\nssm-2.24-101-g897c7ad\win64\nssm.exe"
+    "${env:ProgramFiles(x86)}\nssm\win64\nssm.exe"
 )
+# Search winget-style installs (path varies by version)
+$wingetBase = "C:\Users\huali\AppData\Local\Microsoft\WinGet\Packages"
+if (Test-Path $wingetBase) {
+    $nssmDirs = Get-ChildItem -Path $wingetBase -Directory -Filter "NSSM.NSSM_*" -ErrorAction SilentlyContinue
+    foreach ($dir in $nssmDirs) {
+        $exe = Get-ChildItem -Path $dir.FullName -Recurse -Filter "nssm.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($exe) { $nssmCandidates += $exe.FullName }
+    }
+}
+# Also check huali LOCALAPPDATA directly
+$hualiLocal = "C:\Users\huali\AppData\Local\Microsoft\WinGet\Packages"
+if (Test-Path $hualiLocal) {
+    $nssmDirs = Get-ChildItem -Path $hualiLocal -Directory -Filter "NSSM.NSSM_*" -ErrorAction SilentlyContinue
+    foreach ($dir in $nssmDirs) {
+        $exe = Get-ChildItem -Path $dir.FullName -Recurse -Filter "nssm.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($exe -and $nssmCandidates -notcontains $exe.FullName) { $nssmCandidates += $exe.FullName }
+    }
+}
 # Also try Get-Command (works if PS can resolve it)
 try {
     $psNssm = (Get-Command nssm -ErrorAction SilentlyContinue).Source
