@@ -4,6 +4,12 @@
 
 ---
 
+## Test Deploy
+
+- test: verify auto deploy pipeline
+
+---
+
 ## V3.7（2026-07-28）
 
 **修改**：表达层重建
@@ -142,3 +148,5 @@
 - `V3.5` — Memory Pipeline 修复（中版本）
 - `V3.5.1` — 子修复（小版本）
 - `V3.7` — 表达层重建（中版本，跳过 3.6 因为 3.6.x 是过渡迭代）
+
+- test: verify auto deploy pipeline
