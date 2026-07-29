@@ -53,6 +53,32 @@ if (-not $UvExe) {
     exit 1
 }
 
+$NssmExe = $null
+$nssmCandidates = @(
+    "nssm",                                        # PATH
+    "$env:ProgramFiles\nssm\win64\nssm.exe",
+    "${env:ProgramFiles(x86)}\nssm\win64\nssm.exe",
+    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\NSSM.NSSM_Microsoft.Winget.Source_8wekyb3d8bbwe\nssm-2.24-101-g897c7ad\win64\nssm.exe"
+)
+# Also try Get-Command (works if PS can resolve it)
+try {
+    $psNssm = (Get-Command nssm -ErrorAction SilentlyContinue).Source
+    if ($psNssm) { $nssmCandidates = @($psNssm) + $nssmCandidates }
+} catch {}
+foreach ($candidate in $nssmCandidates) {
+    try {
+        $check = cmd /c "$candidate version 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            $NssmExe = $candidate
+            break
+        }
+    } catch {}
+}
+if (-not $NssmExe) {
+    Write-Host "[FATAL] nssm not found. Checked: $($nssmCandidates -join ', ')"
+    exit 1
+}
+
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Message"
@@ -105,9 +131,9 @@ function Restart-ServiceSafe {
     param([string]$ServiceName)
     Write-Log "Restarting NSSM service: $ServiceName"
     try {
-        $status = cmd /c "nssm status $ServiceName 2>&1"
+        $status = cmd /c "$NssmExe status $ServiceName 2>&1"
         Write-Log "  Current status: $status"
-        $output = cmd /c "nssm restart $ServiceName 2>&1"
+        $output = cmd /c "$NssmExe restart $ServiceName 2>&1"
         $exit = $LASTEXITCODE
         foreach ($line in $output) { Write-Log "  $line" }
         if ($exit -ne 0) { throw "nssm restart failed (exit=$exit)" }
@@ -143,6 +169,7 @@ Write-Log "========== START DEPLOY =========="
 Set-Location $ProjectRoot
 Write-Log "Project root: $ProjectRoot"
 Write-Log "uv: $UvExe"
+Write-Log "nssm: $NssmExe"
 
 # 0.5 Get current HEAD (for rollback)
 $rawHead = cmd /c "git rev-parse HEAD 2>&1"
@@ -229,7 +256,7 @@ Write-Log "[3/5] Restarting services..."
 $RestartErrors = @()
 foreach ($svc in $Services) {
     try {
-        $svcStatusOutput = cmd /c "nssm status $svc 2>&1"
+        $svcStatusOutput = cmd /c "$NssmExe status $svc 2>&1"
         $svcStatusText = ($svcStatusOutput | Out-String).Trim()
         if ($svcStatusText -match "SERVICE_RUNNING|SERVICE_STOPPED") {
             Restart-ServiceSafe -ServiceName $svc
@@ -252,7 +279,7 @@ if (-not $healthy) {
     Write-Log "[FAIL] Health check not passing" "ERROR"
     Restore-Git -OldHead $OldHead
     foreach ($svc in $Services) {
-        try { cmd /c "nssm restart $svc 2>&1" | Out-Null } catch {}
+        try { cmd /c "$NssmExe restart $svc 2>&1" | Out-Null } catch {}
     }
     Remove-Item -Force $LockFile -ErrorAction SilentlyContinue
     exit 1
