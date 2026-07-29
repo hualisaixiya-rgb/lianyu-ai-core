@@ -14,6 +14,7 @@ env/
 
 # 环境变量（含密钥）
 .env
+.env.deploy
 
 # IDE
 .vscode/
@@ -52,3 +53,7 @@ uv.lock
 
 # Runtime archives
 archives/
+
+# 自动部署运行时文件
+.deploy.lock
+.deploy.last_head

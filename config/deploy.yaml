@@ -1,0 +1,37 @@
+# ============================================================
+# 自动部署系统配置（可提交到 Git，不含密钥）
+# ============================================================
+#
+# 密钥类配置（WEBHOOK_SECRET、TUNNEL_HOSTNAME）请放到
+# 项目根目录的 .env.deploy 文件中（已 gitignored）。
+#
+# Cloudflare Tunnel 的 config.yml 属于服务器运维配置，
+# 默认路径：%USERPROFILE%\.cloudflared\config.yml
+# 不与项目源码混合管理。
+
+webhook:
+  port: 9000
+  listen: "0.0.0.0"
+  allowed_events:
+    - push
+  allowed_branches:
+    - refs/heads/main
+  # HEAD 去重：相同 HEAD 不重复部署，避免无意义重启
+  dedup: true
+
+deploy:
+  services:
+    - LianyuAI
+    - LianyuTelegram
+  # 未来扩展服务只需在此列表追加：
+  # - LianyuDesktop
+  # - LianyuVoice
+
+  lock_timeout_seconds: 600   # 锁文件超时，防止死锁
+  health_retries: 3           # 健康检查重试次数
+  health_interval_seconds: 5  # 健康检查间隔
+  smoke_test: true            # 是否执行 Chat API 冒烟测试
+  smoke_test_timeout: 30      # 冒烟测试超时（秒）
+
+log:
+  dir: "logs/deploy"
