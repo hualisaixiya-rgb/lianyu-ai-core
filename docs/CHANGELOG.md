@@ -10,6 +10,24 @@
 
 ---
 
+## V3.8（2026-07-31）
+
+**修改**：稳定化修复 — 5 项已知问题修复，不新增功能，不改变架构。
+
+1. 合并 `relationship.touch()` 重复调用（`ai/core.py` 227-246 行，V3.5 遗留）
+2. 清理死代码：删除 `PromptManager.build_system_prompt()`（从未被调用）+ 删除 `prompt/templates/memory.yaml`（从未被加载）
+3. 9 处 `except Exception: pass` 添加 `logger.debug` 日志（`ai/core.py`），静默失败不再完全无声
+4. 5 处 `asyncio.create_task` 添加 30s timeout 包裹（`_create_background_task` 辅助函数），防止后台任务无限等待
+5. 扩展 `_can_extract_profile()` 标记词（`memory/extractor.py`），新增"我平时/我经常/我习惯/我每天/我最近在"等日常表达场景，修复 `user_profiles` 中 likes/dislikes 等字段无法在日常聊天中被提取的问题
+
+**原因**：V3.7 表达层稳定后，需要清理已知技术债，为 V4 架构拆分做准备。
+
+**影响**：`ai/core.py`、`memory/extractor.py`、`prompt/manager.py`、`prompt/templates/memory.yaml`（删除）
+
+**测试**：32/32 通过
+
+---
+
 ## V3.7（2026-07-28）
 
 **修改**：表达层重建

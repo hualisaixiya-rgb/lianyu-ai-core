@@ -2,13 +2,13 @@
 
 > 回答"现在项目处于什么阶段"。每次阶段变化时更新。
 
-**最后更新**：2026-07-29
+**最后更新**：2026-07-31
 
 ---
 
 ## 当前阶段
 
-**V3.7 稳定化阶段**。代码冻结。仅做表达层微调 + 稳定性观察。
+**V3.8 稳定化完成**。5 项已知问题已修复，32 测试全过。准备进入 V4。
 
 ---
 
@@ -28,14 +28,12 @@
 | HTTP API | ✅ V3.6 | /api/v1/chat 端点 |
 | 测试 | ✅ 32/32 | pytest 全部通过 |
 | 项目文档 | ✅ | PROJECT_OVERVIEW / ARCHITECTURE / DEVELOPMENT_RULES / CHANGELOG / AI_DEVELOPMENT_PROTOCOL |
-
----
-
-## 正在开发
-
-| 模块 | 状态 | 备注 |
-|------|------|------|
-| 表达层观察 | 🔵 观察中 | V3.7 部署后观察文学化是否解决 |
+| V4 架构设计 | ✅ | V4_DESIGN / V4_CHARACTER_STATE / V4_SELF_PERSONALITY / V4_MEMORY_EVOLUTION / V4_ACCEPTANCE_TESTS |
+| relationship.touch 合并 | ✅ V3.8 | 消除重复调用 |
+| 死代码清理 | ✅ V3.8 | 删除 build_system_prompt() + memory.yaml |
+| except Exception 日志 | ✅ V3.8 | 9 处 pass → logger.debug |
+| create_task timeout | ✅ V3.8 | 5 处添加 30s timeout |
+| Profile 标记词扩展 | ✅ V3.8 | 新增日常表达标记词 |
 
 ---
 
@@ -54,13 +52,11 @@
 
 | # | 问题 | 严重度 | 计划 |
 |---|------|--------|------|
-| 1 | `user_profiles` 为空 — 用户姓名从未持久化 | 🟡 | V3.8 修复 |
-| 2 | `ai/core.py` 1122 行上帝对象 | 🟡 | V4 拆分 |
-| 3 | 22 个 `except Exception: pass` | 🟡 | 持续改进 |
-| 4 | `test_fresh.db` schema 未同步 | 🟢 | 低优先级 |
-| 5 | Tools 未接入 chat 流程 | 🟢 | V4 |
-| 6 | 关系理解 3 层 LLM 链路（Summary→Timeline→RelationshipMemory）误差累积 | 🟡 | V4 优化 |
-| 7 | `asyncio.create_task` 5 处无 timeout 包裹 | 🟡 | V3.8 修复 |
+| 1 | `ai/core.py` 1122 行上帝对象 | 🟡 | V4 Stage 0 拆分 |
+| 2 | `test_fresh.db` schema 未同步 | 🟢 | 低优先级 |
+| 3 | Tools 未接入 chat 流程 | 🟢 | V4 |
+| 4 | 关系理解 3 层 LLM 链路（Summary→Timeline→RelationshipMemory）误差累积 | 🟡 | V4 优化 |
+| 5 | `ExpressionTracker` 未接入 | 🟢 | V4 接入或删除 |
 
 ---
 
@@ -68,13 +64,10 @@
 
 | 优先级 | 事项 | 预计版本 |
 |--------|------|---------|
-| P0 | V3.7 实际聊天观察 3~7 天 | 当前 |
-| P0 | 数据库审计（Timeline 是否仍产生污染） | V3.7 |
-| P1 | 修复 `user_profiles` 为空 | V3.8 |
-| P1 | `asyncio.create_task` timeout 包裹 | V3.8 |
-| P2 | `ai/core.py` 拆分（IntentRouter + PromptBuilder + PostProcessPipeline） | V4.0 |
-| P2 | Provider 抽象 + retry 机制 | V4.0 |
-| P2 | Tools 接入 chat 流程 | V4.0 |
+| P0 | V4 Stage 0：ai/core.py 拆分 | V4.0 |
+| P1 | V4 Stage 1：Phase 2 SelfPersonality | V4.0 |
+| P2 | V4 Stage 2：Phase 1 CharacterState | V4.0 |
+| P2 | V4 Stage 3：Phase 4 MemoryEvolution | V4.0 |
 
 ---
 
@@ -82,6 +75,6 @@
 
 | 环境 | 版本 | 状态 |
 |------|------|------|
-| 主机（开发） | V3.7 | 测试中 |
+| 主机（开发） | V3.8 | 稳定化完成，准备 V4 |
 | 服务器（生产） | V3.4（最后发布的稳定版） | 运行中 |
-| GitHub | V3.7 | 已推送（commit `3183483`） |
+| GitHub | V3.8 | 待推送 |

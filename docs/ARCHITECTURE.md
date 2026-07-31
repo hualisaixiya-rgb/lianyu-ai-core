@@ -4,6 +4,16 @@
 
 ---
 
+## V4 架构设计文档
+
+- [V4_DESIGN.md](V4_DESIGN.md) — 总体设计（Phase 边界、依赖关系、新增模块）
+- [V4_CHARACTER_STATE.md](V4_CHARACTER_STATE.md) — Phase 1: 角色状态系统
+- [V4_SELF_PERSONALITY.md](V4_SELF_PERSONALITY.md) — Phase 2: 自我人格系统
+- [V4_MEMORY_EVOLUTION.md](V4_MEMORY_EVOLUTION.md) — Phase 4: Memory 进化
+- [V4_ACCEPTANCE_TESTS.md](V4_ACCEPTANCE_TESTS.md) — 验收测试用例
+
+---
+
 ## 整体架构图
 
 ```

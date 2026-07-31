@@ -68,6 +68,22 @@
 - 用户说"发布/部署/重启服务器" → 执行发布流程
 - 不确定时 → 先问
 
+## 架构审查
+
+用户可以随时说：
+- "执行架构审查" → 按 REVIEW_TEMPLATE.md 六维度审查全项目
+- "执行架构审查，重点检查 Memory" → 指定范围审查
+- "执行轻量审查" → 仅检查关键指标，不深入代码
+
+详见 [docs/REVIEW_SYSTEM.md](docs/REVIEW_SYSTEM.md)。
+审查模板：[docs/reviews/REVIEW_TEMPLATE.md](docs/reviews/REVIEW_TEMPLATE.md)。
+审查记录：[docs/reviews/INDEX.md](docs/reviews/INDEX.md)。
+
+每次审查结束后，Claude 应：
+1. 输出报告到 `docs/reviews/YYYY-MM-DD.md`
+2. 更新 `docs/reviews/INDEX.md` 索引
+3. 更新 `docs/V3_STATUS.md` 中相关状态
+
 ## 项目结构
 
 ```
@@ -82,6 +98,7 @@ lianyu-ai-core/
 ├── scripts/         # 启动脚本
 ├── tests/           # 测试
 ├── docs/            # 文档
+│   └── reviews/     # 架构审查报告
 ├── archives/        # 运行数据（不同步）
 ├── data/            # 运行数据（不同步）
 ├── logs/            # 运行数据（不同步）

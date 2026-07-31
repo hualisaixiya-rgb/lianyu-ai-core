@@ -33,6 +33,26 @@ from prompt.manager import PromptManager
 # 每个会话加载的历史消息数量上限
 MAX_HISTORY_MESSAGES = 16
 
+# 后台异步任务的默认超时时间（秒）
+BACKGROUND_TASK_TIMEOUT = 30.0
+
+
+def _create_background_task(coro, timeout: float = BACKGROUND_TASK_TIMEOUT):
+    """创建带 timeout 的后台异步任务。
+
+    超时后任务被静默取消，记录 warning 日志。
+    """
+    async def _wrapped():
+        try:
+            await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"后台任务超时 ({timeout}s): {coro.__qualname__}")
+        except Exception as e:
+            logger.warning(f"后台任务异常: {coro.__qualname__}: {e}")
+
+    return asyncio.create_task(_wrapped())
+
+
 # ---- Intent Detection（纯规则，零 Token） ----
 
 from enum import Enum, auto
@@ -224,15 +244,7 @@ class AICore:
             username=context.username,
         )
 
-        # 1.5. Relationship：更新 Metrics（每次对话自动更新）
-        try:
-            await self.relationship.touch(
-                context.platform, context.platform_user_id
-            )
-        except Exception:
-            pass  # 非关键路径，静默失败
-
-        # 1.6. Relationship：Touch Metrics + 加载 Timeline
+        # 1.5. Relationship：Touch Metrics + 加载 Timeline
         relationship_tone = ""
         timeline_context = ""
         try:
@@ -242,8 +254,8 @@ class AICore:
             timeline_context = await self.relationship.get_timeline_context(
                 context.platform, context.platform_user_id
             )
-        except Exception:
-            pass  # 非关键路径
+        except Exception as e:
+            logger.debug(f"Relationship touch/timeline 失败: {e}")
 
         # 2. 构造发送给 LLM 的用户消息（含引用上下文）
         user_message_for_llm = self._format_user_message(context)
@@ -302,8 +314,8 @@ class AICore:
                         if v and hasattr(session.world_state, f):
                             setattr(session.world_state, f, v)
                     session._no_match_count = 0
-            except Exception:
-                pass  # Fallback 失败不影响主流程
+            except Exception as e:
+                logger.debug(f"LLM world_state fallback 失败: {e}")
 
         # 5c. Active Topics
         session.active_topics.update(context.message)
@@ -386,8 +398,8 @@ class AICore:
                     context.platform, context.platform_user_id, days=7
                 )
                 emotion_trend = get_emotion_trend(tl_entries)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Relationship memory/emotion trend 加载失败: {e}")
 
         # 7. 构建系统 Prompt
         system_prompt = self._build_system_prompt(
@@ -437,8 +449,8 @@ class AICore:
             try:
                 from archive.error_archive import record as err_record
                 err_record("ai/core.py", f"LLM 调用失败: {e}")
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug(f"Error archive 记录失败: {e2}")
             return ChatResponse(content="……")
 
         # 9. 清洗括号 → 保存纯净版本，打破括号自循环
@@ -460,24 +472,24 @@ class AICore:
         # 10.5. 追踪待摘要消息数，超过阈值触发滚动摘要
         session.pending_count += 2
         if session.pending_count >= 12 and len(session.messages) >= 8:
-            asyncio.create_task(
+            _create_background_task(
                 self._summarize_async(context, session)
             )
 
         # 10.6. Timeline 生成 + Growth Cycle（后台异步）
         if session.summary and len(session.summary) > 20:
-            asyncio.create_task(
+            _create_background_task(
                 self._generate_timeline_async(context, session.summary)
             )
             # Growth: Timeline >= 5 条时触发 Pattern Discovery + Merge
-            asyncio.create_task(
+            _create_background_task(
                 self._trigger_growth_if_needed(
                     context.platform, context.platform_user_id
                 )
             )
 
         # 11. 异步提取 Profile（不阻塞本次回复）
-        asyncio.create_task(
+        _create_background_task(
             self._extract_profile_async(context, reply)
         )
 
@@ -489,8 +501,8 @@ class AICore:
                 context.username or "未知",
                 context.message, reply,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"对话归档失败: {e}")
 
         logger.info(
             f"[{context.platform}] 回复: "
@@ -611,8 +623,8 @@ class AICore:
                     k: v for k, v in result.items()
                     if v and isinstance(v, str) and hasattr(current, k)
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"LLM world_state fallback JSON 解析失败: {e}")
         return None
 
     @staticmethod
@@ -787,7 +799,7 @@ class AICore:
             )
             # 如果生成了 Timeline，触发关系理解提炼
             if result:
-                asyncio.create_task(
+                _create_background_task(
                     self.memory.consolidate_timeline(
                         context.platform,
                         context.platform_user_id,
@@ -853,7 +865,8 @@ class AICore:
                 )
                 result = await session.execute(stmt)
                 return result.scalar_one() > 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Pending identity 查询失败: {e}")
             return False
 
     @staticmethod
@@ -1002,8 +1015,8 @@ class AICore:
             )
             if profile:
                 old_value = profile.get_field(field_name)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Profile 读取旧值失败: {e}")
 
         from memory.extractor import MemoryExtractor
         confidence = MemoryExtractor._compute_confidence(context.message, field_name)
@@ -1051,8 +1064,8 @@ class AICore:
             )
             if profile and profile.name:
                 return (profile.name, "confirmed")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Profile confirmed name 查询失败: {e}")
 
         # L2: candidate（最近 7 天的 pending profile_history）
         try:
@@ -1078,8 +1091,8 @@ class AICore:
                 row = result.scalar_one_or_none()
                 if row and row.new_value:
                     return (row.new_value, "candidate")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Profile candidate name 查询失败: {e}")
 
         return (None, "")
 

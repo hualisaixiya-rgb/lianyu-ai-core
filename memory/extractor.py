@@ -318,6 +318,8 @@ class MemoryExtractor:
             "叫我", "我学", "我的专业", "我在上学", "我在工作", "我在读",
             "我的生日", "我毕业于", "我读", "我做", "我从事",
             "把名字改成", "名字改成", "改个名字", "换个名字", "改名",
+            # V3.8: 日常表达中的 Profile 提取场景
+            "我平时", "我经常", "我习惯", "我每天", "我最近在",
         ]
         has_marker = any(marker in msg for marker in identity_markers)
 
