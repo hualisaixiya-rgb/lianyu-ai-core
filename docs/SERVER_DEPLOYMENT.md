@@ -1,8 +1,19 @@
 # 绘梨衣 AI Core · 服务器部署文档
 
-> 最后更新：2026-07-28  
+> 最后更新：2026-08-05  
+> 当前部署版本：V3.4 → 待升级 V3.8  
 > 服务器：Windows 10 Pro (Build 19045)  
 > 项目路径：`E:\AI\lianyu-ai-core`
+
+---
+
+## V3.8 部署记录
+
+| 日期 | 操作 | 结果 |
+|------|------|:--:|
+| 2026-08-05 | V3.8 部署 Checklist 创建 | 待执行 |
+
+详见 [V3.8_DEPLOYMENT_CHECKLIST.md](V3.8_DEPLOYMENT_CHECKLIST.md)
 
 ---
 
