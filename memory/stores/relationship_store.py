@@ -10,7 +10,7 @@
 """
 
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from sqlalchemy import select, func as sql_func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,9 +91,9 @@ class MetricsStore:
                 # 连续天数
                 if row.last_chat_at:
                     last_date = row.last_chat_at.date()
-                    if last_date == today - date.timedelta(days=1):
+                    if last_date == today - timedelta(days=1):
                         row.consecutive_days += 1
-                    elif last_date < today - date.timedelta(days=1):
+                    elif last_date < today - timedelta(days=1):
                         row.consecutive_days = 1
 
                 # bond_level 暂不自动增长，保持手动或未来规则驱动
