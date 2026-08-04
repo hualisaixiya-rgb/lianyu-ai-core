@@ -10,17 +10,17 @@
 """
 
 import asyncio
-from datetime import datetime
 from dataclasses import dataclass, field
 
 from loguru import logger
 
+from ai.intent import Intent, detect_intent
 from ai.message_formatter import format_user_message
 from ai.prompt_builder import PromptBuilder, PromptContext
 from ai.providers.openai_compatible import OpenAICompatibleProvider
 from ai.world_tracker import (
     WorldState, ActiveTopics, ExpressionTracker,
-    update_world_state, needs_llm_fallback, get_time_context,
+    update_world_state, needs_llm_fallback,
     apply_rules,
 )
 from character.loader import CharacterLoader
@@ -53,11 +53,6 @@ def _create_background_task(coro, timeout: float = BACKGROUND_TASK_TIMEOUT):
             logger.warning(f"后台任务异常: {coro.__qualname__}: {e}")
 
     return asyncio.create_task(_wrapped())
-
-
-# ---- Intent Detection（V4 Stage 0 A1：迁移至 ai/intent.py） ----
-
-from ai.intent import Intent, detect_intent  # noqa: E402
 
 
 @dataclass
@@ -149,7 +144,7 @@ class AICore:
         self._character_name = get_settings().character.name
         self._character = self.character_loader.load(self._character_name)
 
-        # V4 Stage 0 A3: PromptBuilder（依赖注入，行为与 _build_system_prompt 一致）
+        # PromptBuilder（依赖注入，渲染 System Prompt）
         self.prompt_builder = PromptBuilder(
             prompt_manager=self.prompt_manager,
             character=self._character,
@@ -503,7 +498,7 @@ class AICore:
     def _format_user_message(self, context: ChatContext) -> str:
         """格式化发送给 LLM 的用户消息。
 
-        V4 Stage 0 A2：委托 ai/message_formatter.py（行为一致）。
+        委托 ai/message_formatter.py（行为一致）。
         """
         return format_user_message(context)
 
@@ -618,7 +613,7 @@ class AICore:
     ) -> PromptContext:
         """组装 PromptContext。
 
-        V4 Stage 0 A3：位于 Step 6.5（关系理解注入）完成后、Step 7（构建 Prompt）前。
+        位于 Step 6.5（关系理解注入）完成后、Step 7（构建 Prompt）前。
         仅做字段平铺，不渲染。
 
         Args:
@@ -654,7 +649,7 @@ class AICore:
     ) -> str:
         """构建完整的 System Prompt（V3 选择性注入）。
 
-        V4 Stage 0 A3：委托 PromptBuilder.build()（行为与 V3.8.1 逐字符一致）。
+        委托 PromptBuilder.build()（行为与 V3.8.1 逐字符一致）。
 
         Args:
             profile_context: 用户画像上下文
