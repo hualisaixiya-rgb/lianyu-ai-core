@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from ai.message_formatter import format_user_message
+from ai.prompt_builder import PromptBuilder, PromptContext
 from ai.providers.openai_compatible import OpenAICompatibleProvider
 from ai.world_tracker import (
     WorldState, ActiveTopics, ExpressionTracker,
@@ -147,6 +148,12 @@ class AICore:
         # 当前角色
         self._character_name = get_settings().character.name
         self._character = self.character_loader.load(self._character_name)
+
+        # V4 Stage 0 A3: PromptBuilder（依赖注入，行为与 _build_system_prompt 一致）
+        self.prompt_builder = PromptBuilder(
+            prompt_manager=self.prompt_manager,
+            character=self._character,
+        )
 
         # 会话缓存
         self._sessions: dict[str, ConversationSession] = {}
@@ -596,6 +603,42 @@ class AICore:
             )
         return self._sessions[session_key]
 
+    def _assemble_prompt_context(
+        self,
+        profile_context: str = "",
+        memory_context: str = "",
+        conversation_summary: str = "",
+        relationship_tone: str = "",
+        timeline_context: str = "",
+        relationship_memory_context: str = "",
+        emotion_trend: str = "",
+        intent: Intent | None = None,
+        world_state: WorldState | None = None,
+        active_topics: ActiveTopics | None = None,
+    ) -> PromptContext:
+        """组装 PromptContext。
+
+        V4 Stage 0 A3：位于 Step 6.5（关系理解注入）完成后、Step 7（构建 Prompt）前。
+        仅做字段平铺，不渲染。
+
+        Args:
+            参数与 V3.8.1 的 _build_system_prompt() 完全一致。
+
+        Returns:
+            PromptContext（渲染所需全部上下文）
+        """
+        return PromptContext(
+            profile_context=profile_context,
+            memory_context=memory_context,
+            conversation_summary=conversation_summary,
+            relationship_tone=relationship_tone,
+            timeline_context=timeline_context,
+            relationship_memory_context=relationship_memory_context,
+            emotion_trend=emotion_trend,
+            world_state=world_state,
+            active_topics=active_topics,
+        )
+
     def _build_system_prompt(
         self,
         profile_context: str = "",
@@ -611,6 +654,8 @@ class AICore:
     ) -> str:
         """构建完整的 System Prompt（V3 选择性注入）。
 
+        V4 Stage 0 A3：委托 PromptBuilder.build()（行为与 V3.8.1 逐字符一致）。
+
         Args:
             profile_context: 用户画像上下文
             memory_context: 长期记忆上下文
@@ -625,47 +670,19 @@ class AICore:
         Returns:
             完整的 System Prompt 字符串
         """
-        from utils.world_state import get_world_context
-
-        identity = self._character.to_identity()
-        world_context = get_world_context()
-        time_context = get_time_context()
-
-        # 摘要（仅非问候/身份确认时注入）
-        summary_block = ""
-        if conversation_summary:
-            summary_block = f"【之前的对话】\n{conversation_summary}"
-
-        # Timeline（仅回忆过去时注入）
-        timeline_block = ""
-        if timeline_context:
-            timeline_block = f"【近期事件记录】\n{timeline_context}"
-
-        # World State
-        world_state_block = ""
-        if world_state and not world_state.is_empty():
-            world_state_block = world_state.to_prompt()
-
-        # Active Topics
-        topics_block = ""
-        if active_topics and not active_topics.is_empty():
-            topics_block = active_topics.to_prompt()
-
-        return self.prompt_manager.render(
-            "system",
-            identity=identity,
-            current_time=time_context,
-            world_context=world_context,
+        ctx = self._assemble_prompt_context(
             profile_context=profile_context,
             memory_context=memory_context,
-            conversation_summary=summary_block,
+            conversation_summary=conversation_summary,
             relationship_tone=relationship_tone,
-            timeline_context=timeline_block,
+            timeline_context=timeline_context,
             relationship_memory_context=relationship_memory_context,
             emotion_trend=emotion_trend,
-            world_state_context=world_state_block,
-            active_topics_context=topics_block,
+            intent=intent,
+            world_state=world_state,
+            active_topics=active_topics,
         )
+        return self.prompt_builder.build(ctx)
 
     async def _summarize_async(
         self, context: ChatContext, session: ConversationSession
