@@ -9,11 +9,11 @@
 - 不依赖任何具体 Adapter
 """
 
-import asyncio
 from dataclasses import dataclass, field
 
 from loguru import logger
 
+from ai.background_tasks import BackgroundTasks, _create_background_task
 from ai.identity import IdentityFlow
 from ai.intent import Intent, detect_intent
 from ai.message_formatter import format_user_message
@@ -29,26 +29,6 @@ from memory.manager import MemoryManager
 from memory.stores.relationship_store import RelationshipStore
 from memory.stores.sqlite_store import SQLiteMemoryStore
 from prompt.manager import PromptManager
-
-
-# 后台异步任务的默认超时时间（秒）
-BACKGROUND_TASK_TIMEOUT = 30.0
-
-
-def _create_background_task(coro, timeout: float = BACKGROUND_TASK_TIMEOUT):
-    """创建带 timeout 的后台异步任务。
-
-    超时后任务被静默取消，记录 warning 日志。
-    """
-    async def _wrapped():
-        try:
-            await asyncio.wait_for(coro, timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.warning(f"后台任务超时 ({timeout}s): {coro.__qualname__}")
-        except Exception as e:
-            logger.warning(f"后台任务异常: {coro.__qualname__}: {e}")
-
-    return asyncio.create_task(_wrapped())
 
 
 @dataclass
@@ -130,6 +110,15 @@ class AICore:
 
         # WorldStateUpdater（Step 5a/5b/5c 编排，Phase B3 迁移）
         self.world_updater = WorldStateUpdater(provider=self.provider)
+
+        # BackgroundTasks（Phase C1 迁移）
+        self.background_tasks = BackgroundTasks(
+            memory=self.memory,
+            relationship=self.relationship,
+            provider=self.provider,
+            identity_flow=self.identity_flow,
+            should_extract=AICore._should_extract,
+        )
 
         logger.info(
             f"AI Core 初始化完成 | 角色={self._character.display_name} | "
@@ -564,120 +553,6 @@ class AICore:
         )
         return self.prompt_builder.build(ctx)
 
-    async def _summarize_async(
-        self, context: ChatContext, session: ConversationSession
-    ) -> None:
-        """异步滚动摘要：将窗口外的旧消息压缩为结构化摘要。
-
-        取 session.messages 最旧的 8 条，调用 LLM 生成/合并摘要，
-        然后从 session.messages 中移除已摘要的消息。
-        """
-        try:
-            from memory.summarizer import ConversationSummarizer
-
-            summarizer = ConversationSummarizer()
-            batch = session.messages[:8]
-            new_summary = await summarizer.summarize(
-                messages=batch,
-                existing_summary=session.summary,
-                provider=self.provider,
-            )
-            session.summary = new_summary
-            session.messages = session.messages[8:]
-            session.pending_count = 0
-            logger.info(
-                f"对话摘要更新: [{context.platform}:{context.platform_user_id}] "
-                f"摘要={len(new_summary)}字 | 剩余消息={len(session.messages)}条"
-            )
-        except Exception as e:
-            logger.warning(f"后台摘要失败: {e}")
-
-    async def _trigger_growth_if_needed(
-        self, platform: str, platform_user_id: str
-    ) -> None:
-        """如果 Timeline 积累 >= 5 条，触发 Growth Cycle（后台异步）。"""
-        try:
-            entries = await self.relationship.timeline.get_recent(
-                platform, platform_user_id, days=30
-            )
-            if len(entries) >= 5:
-                from memory.relationship_growth import RelationshipGrowth
-                growth = RelationshipGrowth(self.memory.rel_memory_store)
-                result = await growth.run_growth_cycle(
-                    platform, platform_user_id, entries, self.provider,
-                )
-                if result["patterns"] > 0 or result["merged"] > 0:
-                    logger.info(
-                        f"Growth cycle: [{platform}:{platform_user_id}] "
-                        f"patterns={result['patterns']} merged={result['merged']}"
-                    )
-        except Exception as e:
-            logger.warning(f"Growth trigger 失败: {e}")
-
-    async def _generate_timeline_async(
-        self, context: ChatContext, summary: str
-    ) -> None:
-        """从对话摘要生成今日 Timeline + 触发关系理解提炼（后台运行）。"""
-        try:
-            result = await self.relationship.generate_timeline_if_needed(
-                context.platform,
-                context.platform_user_id,
-                summary,
-                self.provider,
-            )
-            # 如果生成了 Timeline，触发关系理解提炼
-            if result:
-                _create_background_task(
-                    self.memory.consolidate_timeline(
-                        context.platform,
-                        context.platform_user_id,
-                        [result],
-                        self.provider,
-                    )
-                )
-        except Exception as e:
-            logger.warning(f"Timeline 生成失败: {e}")
-
-    async def _extract_profile_async(
-        self, context: ChatContext, ai_reply: str
-    ) -> None:
-        """异步提取 Profile（后台运行，不影响回复速度）。
-
-        identity intent → 不调 LLM，直接创建 pending。
-        NAME_CHANGE_CONFIRM → 调 LLM 提取，正常 applied。
-        """
-        from memory.extractor import MemoryExtractor
-        intent = MemoryExtractor._detect_profile_intent(context.message)
-
-        # 身份声明 intent → 绕过 LLM，直接创建 pending
-        if intent in ("NAME_INTRO", "NICKNAME_SET", "NAME_CHANGE_REQUEST"):
-            await self._create_pending_identity(
-                context, intent,
-            )
-            return
-
-        # 其他非身份场景 → 走正常的 _should_extract 守卫
-        if not self._should_extract(context.message, ai_reply):
-            return
-
-        try:
-            result = await self.memory.extract_and_store(
-                platform=context.platform,
-                platform_user_id=context.platform_user_id,
-                user_message=context.message,
-                ai_reply=ai_reply,
-                provider=self.provider,
-            )
-            if result.profile_count > 0:
-                logger.info(
-                    f"Profile 已更新: [{context.platform}:{context.platform_user_id}] "
-                    f"+{result.profile_count} 字段"
-                )
-        except Exception as e:
-            logger.warning(f"Profile 提取失败: {e}")
-
-        return (None, "")
-
     # ================================================================
     # 身份确认流程（Phase B2：委托 ai/identity.py）
     # ================================================================
@@ -730,6 +605,46 @@ class AICore:
         return await self.identity_flow.get_confirmed_name(
             platform, platform_user_id
         )
+
+    # ================================================================
+    # 后台任务（Phase C1：委托 ai/background_tasks.py）
+    # ================================================================
+
+    async def _summarize_async(
+        self, context: ChatContext, session: ConversationSession
+    ) -> None:
+        """异步滚动摘要：将窗口外的旧消息压缩为结构化摘要。
+
+        委托 ai/background_tasks.py（行为一致）。
+        """
+        await self.background_tasks.summarize(session)
+
+    async def _trigger_growth_if_needed(
+        self, platform: str, platform_user_id: str
+    ) -> None:
+        """如果 Timeline 积累 >= 5 条，触发 Growth Cycle（后台异步）。
+
+        委托 ai/background_tasks.py（行为一致）。
+        """
+        await self.background_tasks.trigger_growth(platform, platform_user_id)
+
+    async def _generate_timeline_async(
+        self, context: ChatContext, summary: str
+    ) -> None:
+        """从对话摘要生成今日 Timeline + 触发关系理解提炼（后台运行）。
+
+        委托 ai/background_tasks.py（行为一致）。
+        """
+        await self.background_tasks.generate_timeline(context, summary)
+
+    async def _extract_profile_async(
+        self, context: ChatContext, ai_reply: str
+    ) -> None:
+        """异步提取 Profile（后台运行，不影响回复速度）。
+
+        委托 ai/background_tasks.py（行为一致）。
+        """
+        await self.background_tasks.extract_profile(context, ai_reply)
 
     @staticmethod
     def _is_identity_declaration(message: str) -> bool:
