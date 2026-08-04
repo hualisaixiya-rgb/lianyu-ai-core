@@ -1,0 +1,143 @@
+{
+  "meta": {
+    "tag": "v3.8.1-stable",
+    "commit": "a4591b4a5a7b31d46e55115acea4352aef9f2ff4",
+    "captured_at": "2026-08-04T12:24:55",
+    "provider": "mock-deterministic",
+    "background": "sync-executed"
+  },
+  "cases": {
+    "case1_basic_chat": {
+      "description": "普通聊天 — 验证基础状态写入",
+      "inputs": [
+        "你好",
+        "在吗"
+      ],
+      "responses": [
+        {
+          "input": "你好",
+          "memory_updated": false
+        },
+        {
+          "input": "在吗",
+          "memory_updated": false
+        }
+      ],
+      "checksums": {
+        "users": "a4ae096ea6787dd07e54c25744fb46c367d9e309a8d0c68af593374074d91124",
+        "messages": "8745576feefbff87663912d500d96c51992f1f95e589479ab2487f63ea675173",
+        "memory_records": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "user_profiles": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "profile_history": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relationship_metrics": "9fad798b670ad82f7013690a1bf910b9fdb6624fa475f0e8f4c675df5f3296eb",
+        "relationship_timeline": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relationship_memories": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "assertions": {
+        "users==1": true,
+        "messages==4": true,
+        "metrics_total_chats==2": true
+      },
+      "background_calls_at_end": 2
+    },
+    "case2_identity_flow": {
+      "description": "身份声明/确认 — 验证 Step 6a pending→confirmed 同轮可见",
+      "inputs": [
+        "我叫测试员",
+        "对，就叫测试员"
+      ],
+      "responses": [
+        {
+          "input": "我叫测试员",
+          "memory_updated": false
+        },
+        {
+          "input": "对，就叫测试员",
+          "memory_updated": true
+        }
+      ],
+      "checksums": {
+        "users": "892abbd8d7c0710289c51a70bced878d8e3cf77d01e3de9e686fe0efdfb5e761",
+        "messages": "accedb644d9b1f8af05f19bb91974a843ee6c324b0fea6d3d4d516f64bc31dd8",
+        "memory_records": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "user_profiles": "4809af8123a4b61e295353b482ce7a7bc047cc5063f2f3d1316960290f1c115a",
+        "profile_history": "d4bc47e44d93ed6006732d3512ceae7e034e6f4dce03ac0d69b2dc09a441631a",
+        "relationship_metrics": "f298b257b3c85d5e0393c9c6445e66352e4da84ca0dac490dedba84a82867018",
+        "relationship_timeline": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relationship_memories": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "assertions": {
+        "profile_history_1_confirmed": true,
+        "user_profiles_name==测试员": true,
+        "same_turn_name_visible": true
+      },
+      "background_calls_at_end": 4
+    },
+    "case3_background_tasks": {
+      "description": "后台任务 — 验证 summarize/timeline/consolidate 确定性副作用",
+      "inputs": [
+        "今天天气不错",
+        "我最近在学画画",
+        "画了一幅水彩画",
+        "好累啊",
+        "我想早点休息",
+        "晚安",
+        "明天还要排练",
+        "我先睡了"
+      ],
+      "responses": [
+        {
+          "input": "今天天气不错",
+          "memory_updated": false
+        },
+        {
+          "input": "我最近在学画画",
+          "memory_updated": false
+        },
+        {
+          "input": "画了一幅水彩画",
+          "memory_updated": false
+        },
+        {
+          "input": "好累啊",
+          "memory_updated": false
+        },
+        {
+          "input": "我想早点休息",
+          "memory_updated": false
+        },
+        {
+          "input": "晚安",
+          "memory_updated": false
+        },
+        {
+          "input": "明天还要排练",
+          "memory_updated": false
+        },
+        {
+          "input": "我先睡了",
+          "memory_updated": false
+        }
+      ],
+      "checksums": {
+        "users": "10fe5ea4653752d30b16bbd398f2c6b5b9b3851a771c071b4bf70cff15103a97",
+        "messages": "7ab2ebac73ae888beeb818b45b0acc21bf0eefdc5cb3111f352e521d0c49a3ad",
+        "memory_records": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "user_profiles": "4809af8123a4b61e295353b482ce7a7bc047cc5063f2f3d1316960290f1c115a",
+        "profile_history": "d4bc47e44d93ed6006732d3512ceae7e034e6f4dce03ac0d69b2dc09a441631a",
+        "relationship_metrics": "872f8be7b5ac102786f04df28224e20b3ec77953e250df9f14d004d24c362e72",
+        "relationship_timeline": "a1b8fb3cc1cd105ef24ea1c0ae1cbea050ea1a6e1e4df20d122bf87bef89b6bf",
+        "relationship_memories": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "assertions": {
+        "messages==16": true,
+        "metrics_total_chats==8": true,
+        "timeline==1": true,
+        "rel_memories==0": true,
+        "summary_updated": true,
+        "background_calls==17": true
+      },
+      "background_calls_at_end": 17
+    }
+  }
+}
