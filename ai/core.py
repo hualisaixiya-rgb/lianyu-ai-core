@@ -176,7 +176,7 @@ class AICore:
             logger.debug(f"Relationship touch/timeline 失败: {e}")
 
         # 2. 构造发送给 LLM 的用户消息（含引用上下文）
-        user_message_for_llm = self._format_user_message(context)
+        user_message_for_llm = format_user_message(context)
 
         # 3. 保存用户消息到数据库（身份声明类标记为 context_visible=False）
         context_visible = not self._is_identity_declaration(context.message)
@@ -189,7 +189,9 @@ class AICore:
         )
 
         # 4. 加载对话历史（发送给 LLM 的消息使用含引用上下文的版本）
-        session = self._get_session(context.platform, context.platform_user_id)
+        session = self.sessions.get_or_create(
+            context.platform, context.platform_user_id
+        )
         if not session.loaded_from_db:
             db_history = await MessageRepository.get_recent_history(
                 platform=context.platform,
@@ -220,11 +222,11 @@ class AICore:
             f"intent={intent.name}"
         )
 
-        # Pending Resolution：有 pending + 消息像确认 → 消费 pending
-        if await self._has_pending_identity(
+        # Pending Resolution：有 pending + 消息像确认 → 消费 pending（Step 6a 同步，6a→7 红线）
+        if await self.identity_flow.has_pending(
             context.platform, context.platform_user_id
-        ) and self._looks_like_confirmation(context.message):
-            await self._resolve_pending_identity(
+        ) and IdentityFlow.looks_like_confirmation(context.message):
+            await self.identity_flow.resolve_pending(
                 context.platform, context.platform_user_id,
                 context.message,
             )
@@ -249,7 +251,7 @@ class AICore:
             timeline_for_prompt = ""
 
             # V3.5: 三级回退 confirmed → candidate → none
-            profile_name, name_level = await self._get_confirmed_name(
+            profile_name, name_level = await self.identity_flow.get_confirmed_name(
                 context.platform, context.platform_user_id
             )
             if profile_name:
@@ -366,24 +368,24 @@ class AICore:
         session.pending_count += 2
         if session.pending_count >= 12 and len(session.messages) >= 8:
             _create_background_task(
-                self._summarize_async(context, session)
+                self.background_tasks.summarize(session)
             )
 
         # 10.6. Timeline 生成 + Growth Cycle（后台异步）
         if session.summary and len(session.summary) > 20:
             _create_background_task(
-                self._generate_timeline_async(context, session.summary)
+                self.background_tasks.generate_timeline(context, session.summary)
             )
             # Growth: Timeline >= 5 条时触发 Pattern Discovery + Merge
             _create_background_task(
-                self._trigger_growth_if_needed(
+                self.background_tasks.trigger_growth(
                     context.platform, context.platform_user_id
                 )
             )
 
         # 11. 异步提取 Profile（不阻塞本次回复）
         _create_background_task(
-            self._extract_profile_async(context, reply)
+            self.background_tasks.extract_profile(context, reply)
         )
 
         # 对话归档（独立模块，不影响聊天流程）
@@ -430,13 +432,6 @@ class AICore:
     # 内部方法
     # ================================================================
 
-    def _format_user_message(self, context: ChatContext) -> str:
-        """格式化发送给 LLM 的用户消息。
-
-        委托 ai/message_formatter.py（行为一致）。
-        """
-        return format_user_message(context)
-
     @staticmethod
     def _dump_prompt(
         system_prompt: str,
@@ -464,13 +459,6 @@ class AICore:
             logger.info("H{:04d}| [{}] {}", i, role, content)
 
         logger.info(f"{sep} END PROMPT DUMP {sep}")
-
-    def _get_session(self, platform: str, platform_user_id: str) -> ConversationSession:
-        """获取或创建用户会话（内存缓存）。
-
-        委托 ai/session_manager.py（行为一致）。
-        """
-        return self.sessions.get_or_create(platform, platform_user_id)
 
     def _assemble_prompt_context(
         self,
@@ -552,99 +540,6 @@ class AICore:
             active_topics=active_topics,
         )
         return self.prompt_builder.build(ctx)
-
-    # ================================================================
-    # 身份确认流程（Phase B2：委托 ai/identity.py）
-    # ================================================================
-
-    async def _has_pending_identity(
-        self, platform: str, platform_user_id: str
-    ) -> bool:
-        """检查是否有待确认的身份记录。
-
-        委托 ai/identity.py（行为一致）。
-        """
-        return await self.identity_flow.has_pending(platform, platform_user_id)
-
-    @staticmethod
-    def _looks_like_confirmation(message: str) -> bool:
-        """检测消息是否为身份确认语句。
-
-        委托 ai/identity.py（行为一致）。
-        """
-        return IdentityFlow.looks_like_confirmation(message)
-
-    async def _resolve_pending_identity(
-        self, platform: str, platform_user_id: str, confirm_msg: str
-    ) -> None:
-        """消费最近的 pending 身份记录 → confirmed → 写入 user_profiles。
-
-        在 chat() 主流程中、build_prompt() 之前调用（Step 6a 同步完成）。
-        委托 ai/identity.py（行为一致）。
-        """
-        await self.identity_flow.resolve_pending(
-            platform, platform_user_id, confirm_msg
-        )
-
-    async def _create_pending_identity(
-        self, context: ChatContext, intent: str
-    ) -> None:
-        """绕过 LLM + upsert，直接在 profile_history 创建 pending。
-
-        委托 ai/identity.py（行为一致）。
-        """
-        await self.identity_flow.create_pending(context, intent)
-
-    async def _get_confirmed_name(
-        self, platform: str, platform_user_id: str
-    ) -> tuple[str | None, str]:
-        """获取用户姓名及其确认级别（V3.5 三级回退）。
-
-        委托 ai/identity.py（行为一致）。
-        """
-        return await self.identity_flow.get_confirmed_name(
-            platform, platform_user_id
-        )
-
-    # ================================================================
-    # 后台任务（Phase C1：委托 ai/background_tasks.py）
-    # ================================================================
-
-    async def _summarize_async(
-        self, context: ChatContext, session: ConversationSession
-    ) -> None:
-        """异步滚动摘要：将窗口外的旧消息压缩为结构化摘要。
-
-        委托 ai/background_tasks.py（行为一致）。
-        """
-        await self.background_tasks.summarize(session)
-
-    async def _trigger_growth_if_needed(
-        self, platform: str, platform_user_id: str
-    ) -> None:
-        """如果 Timeline 积累 >= 5 条，触发 Growth Cycle（后台异步）。
-
-        委托 ai/background_tasks.py（行为一致）。
-        """
-        await self.background_tasks.trigger_growth(platform, platform_user_id)
-
-    async def _generate_timeline_async(
-        self, context: ChatContext, summary: str
-    ) -> None:
-        """从对话摘要生成今日 Timeline + 触发关系理解提炼（后台运行）。
-
-        委托 ai/background_tasks.py（行为一致）。
-        """
-        await self.background_tasks.generate_timeline(context, summary)
-
-    async def _extract_profile_async(
-        self, context: ChatContext, ai_reply: str
-    ) -> None:
-        """异步提取 Profile（后台运行，不影响回复速度）。
-
-        委托 ai/background_tasks.py（行为一致）。
-        """
-        await self.background_tasks.extract_profile(context, ai_reply)
 
     @staticmethod
     def _is_identity_declaration(message: str) -> bool:
