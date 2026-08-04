@@ -20,11 +20,8 @@ from ai.message_formatter import format_user_message
 from ai.prompt_builder import PromptBuilder, PromptContext
 from ai.providers.openai_compatible import OpenAICompatibleProvider
 from ai.session_manager import ConversationSession, SessionManager, MAX_HISTORY_MESSAGES
-from ai.world_tracker import (
-    WorldState, ActiveTopics, ExpressionTracker,
-    update_world_state, needs_llm_fallback,
-    apply_rules,
-)
+from ai.world_tracker import WorldState, ActiveTopics
+from ai.world_updater import WorldStateUpdater
 from character.loader import CharacterLoader
 from config.settings import get_settings
 from database.repository import MessageRepository, UserRepository
@@ -131,6 +128,9 @@ class AICore:
         # 注入 profile_store（只读协调，不修改其逻辑）
         self.identity_flow = IdentityFlow(profile_store=self.memory.profile_store)
 
+        # WorldStateUpdater（Step 5a/5b/5c 编排，Phase B3 迁移）
+        self.world_updater = WorldStateUpdater(provider=self.provider)
+
         logger.info(
             f"AI Core 初始化完成 | 角色={self._character.display_name} | "
             f"模型={self.provider.model} | 记忆=SQLite"
@@ -212,42 +212,17 @@ class AICore:
         if context_visible:
             session.messages.append({"role": "user", "content": user_message_for_llm})
 
-        # 5. Rule Engine：更新 World State + Active Topics（程序优先，零 Token）
-        if session.world_state is None:
-            session.world_state = WorldState()
-        if session.active_topics is None:
-            session.active_topics = ActiveTopics()
-        if session.expression_tracker is None:
-            session.expression_tracker = ExpressionTracker()
+        # 5. Rule Engine：更新 World State + Active Topics（Phase B3 委托 world_updater）
+        self.world_updater.ensure_initialized(session)
 
-        # 5a. World State
-        rule_hits = apply_rules(context.message)
-        if rule_hits:
-            session.world_state = update_world_state(
-                context.message, session.world_state
-            )
-            session._no_match_count = 0
-        else:
-            session._no_match_count += 1
+        # 5a. World State（程序优先，零 Token）
+        self.world_updater.apply_rules(session, context.message)
 
         # 5b. LLM Fallback（仅在 Rule 无法覆盖的复杂场景触发）
-        if needs_llm_fallback(
-            context.message, session.world_state, session._no_match_count
-        ):
-            try:
-                fallback = await self._llm_world_state_fallback(
-                    context.message, session.world_state
-                )
-                if fallback:
-                    for f, v in fallback.items():
-                        if v and hasattr(session.world_state, f):
-                            setattr(session.world_state, f, v)
-                    session._no_match_count = 0
-            except Exception as e:
-                logger.debug(f"LLM world_state fallback 失败: {e}")
+        await self.world_updater.llm_fallback(session, context.message)
 
         # 5c. Active Topics
-        session.active_topics.update(context.message)
+        self.world_updater.update_topics(session, context.message)
 
         # 6. 意图检测 + 选择性记忆召回
         intent = detect_intent(context.message)
@@ -472,64 +447,6 @@ class AICore:
         委托 ai/message_formatter.py（行为一致）。
         """
         return format_user_message(context)
-
-    async def _llm_world_state_fallback(
-        self, user_message: str, current: WorldState
-    ) -> dict[str, str] | None:
-        """LLM Fallback：仅用于复杂语义的 World State 提取。
-
-        只在 Rule Engine 无法解析时调用（~5% 场景）。
-        使用极简 Prompt，目标 ~50 tokens input + ~50 tokens output。
-
-        Args:
-            user_message: 用户消息
-            current: 当前 World State
-
-        Returns:
-            更新字段 dict，失败返回 None
-        """
-        import json
-
-        current_json = {
-            "location": current.location or None,
-            "activity": current.activity or None,
-            "temperature_feeling": current.temperature_feeling or None,
-            "sky": current.sky or None,
-            "wind": current.wind or None,
-            "user_mood": current.user_mood or None,
-            "crowd": current.crowd or None,
-        }
-
-        prompt = (
-            "从这句话提取状态，只返回JSON，不解释：\n"
-            f"\"{user_message}\"\n\n"
-            f"当前状态：{json.dumps(current_json, ensure_ascii=False)}\n"
-            "规则：只提取明确说出的。不推断。\n"
-            '{"location":"...","activity":"...","temperature_feeling":"...",'
-            '"sky":"...","wind":"...","user_mood":"...","crowd":"..."}'
-        )
-
-        try:
-            raw = await self.provider.chat(
-                messages=[{"role": "user", "content": prompt}],
-                system_prompt="你是一个状态提取器。只返回JSON。不解释。不推断。",
-            )
-            # 提取 JSON
-            text = raw.strip()
-            if "```" in text:
-                start = text.find("{")
-                end = text.rfind("}") + 1
-                if start >= 0 and end > start:
-                    text = text[start:end]
-            result = json.loads(text)
-            if isinstance(result, dict):
-                return {
-                    k: v for k, v in result.items()
-                    if v and isinstance(v, str) and hasattr(current, k)
-                }
-        except Exception as e:
-            logger.debug(f"LLM world_state fallback JSON 解析失败: {e}")
-        return None
 
     @staticmethod
     def _dump_prompt(
