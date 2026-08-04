@@ -18,6 +18,7 @@ from ai.intent import Intent, detect_intent
 from ai.message_formatter import format_user_message
 from ai.prompt_builder import PromptBuilder, PromptContext
 from ai.providers.openai_compatible import OpenAICompatibleProvider
+from ai.session_manager import ConversationSession, SessionManager, MAX_HISTORY_MESSAGES
 from ai.world_tracker import (
     WorldState, ActiveTopics, ExpressionTracker,
     update_world_state, needs_llm_fallback,
@@ -31,9 +32,6 @@ from memory.stores.relationship_store import RelationshipStore
 from memory.stores.sqlite_store import SQLiteMemoryStore
 from prompt.manager import PromptManager
 
-
-# 每个会话加载的历史消息数量上限
-MAX_HISTORY_MESSAGES = 16
 
 # 后台异步任务的默认超时时间（秒）
 BACKGROUND_TASK_TIMEOUT = 30.0
@@ -81,33 +79,6 @@ class ChatResponse:
     memory_updated: bool = False
 
 
-@dataclass
-class ConversationSession:
-    """一个用户的对话会话（内存缓存）。
-
-    Attributes:
-        messages: 当前窗口内的对话历史（最近 N 条）
-        loaded_from_db: 是否已从数据库加载
-        summary: 滚动累积的对话摘要（结构化格式）
-        pending_count: 自上次摘要后新增的消息数
-        world_state: 当前世界状态（Rule Engine 维护，不写 DB）
-        active_topics: 活跃话题管理器
-        expression_tracker: 表达多样性追踪器
-        _no_match_count: 连续未命中 Rule 的轮数
-    """
-
-    platform: str
-    platform_user_id: str
-    messages: list[dict[str, str]] = field(default_factory=list)
-    loaded_from_db: bool = False
-    summary: str = ""
-    pending_count: int = 0
-    world_state: WorldState | None = None
-    active_topics: ActiveTopics | None = None
-    expression_tracker: ExpressionTracker | None = None
-    _no_match_count: int = 0
-
-
 class AICore:
     """AI 推理核心。
 
@@ -150,8 +121,10 @@ class AICore:
             character=self._character,
         )
 
-        # 会话缓存
-        self._sessions: dict[str, ConversationSession] = {}
+        # SessionManager（会话缓存，Phase B1 迁移）
+        self.sessions = SessionManager()
+        # 兼容别名：_sessions 指向同一缓存 dict（外部代码/脚本直接访问 _sessions）
+        self._sessions = self.sessions._sessions
 
         logger.info(
             f"AI Core 初始化完成 | 角色={self._character.display_name} | "
@@ -464,32 +437,25 @@ class AICore:
         return ChatResponse(content=reply, memory_updated=memory_updated)
 
     async def clear_session(self, platform: str, platform_user_id: str) -> None:
-        """清除指定用户的对话历史缓存。"""
-        session_key = f"{platform}:{platform_user_id}"
-        self._sessions.pop(session_key, None)
-        logger.info(f"会话缓存已清除: {session_key}")
+        """清除指定用户的对话历史缓存。
+
+        委托 ai/session_manager.py（行为一致）。
+        """
+        self.sessions.clear(platform, platform_user_id)
 
     def get_history(self, platform: str, platform_user_id: str) -> list[dict[str, str]]:
-        """获取对话历史（只读，从内存缓存）。"""
-        session = self._get_session(platform, platform_user_id)
-        return list(session.messages)
+        """获取对话历史（只读，从内存缓存）。
+
+        委托 ai/session_manager.py（行为一致）。
+        """
+        return self.sessions.get_history(platform, platform_user_id)
 
     async def reload_history(self, platform: str, platform_user_id: str) -> list[dict[str, str]]:
-        """从数据库重新加载对话历史。"""
-        session_key = f"{platform}:{platform_user_id}"
-        self._sessions.pop(session_key, None)
-        db_history = await MessageRepository.get_recent_history(
-            platform=platform,
-            platform_user_id=platform_user_id,
-            limit=MAX_HISTORY_MESSAGES,
-        )
-        self._sessions[session_key] = ConversationSession(
-            platform=platform,
-            platform_user_id=platform_user_id,
-            messages=db_history,
-            loaded_from_db=True,
-        )
-        return db_history
+        """从数据库重新加载对话历史。
+
+        委托 ai/session_manager.py（行为一致）。
+        """
+        return await self.sessions.reload_from_db(platform, platform_user_id)
 
     # ================================================================
     # 内部方法
@@ -589,14 +555,11 @@ class AICore:
         logger.info(f"{sep} END PROMPT DUMP {sep}")
 
     def _get_session(self, platform: str, platform_user_id: str) -> ConversationSession:
-        """获取或创建用户会话（内存缓存）。"""
-        session_key = f"{platform}:{platform_user_id}"
-        if session_key not in self._sessions:
-            self._sessions[session_key] = ConversationSession(
-                platform=platform,
-                platform_user_id=platform_user_id,
-            )
-        return self._sessions[session_key]
+        """获取或创建用户会话（内存缓存）。
+
+        委托 ai/session_manager.py（行为一致）。
+        """
+        return self.sessions.get_or_create(platform, platform_user_id)
 
     def _assemble_prompt_context(
         self,
