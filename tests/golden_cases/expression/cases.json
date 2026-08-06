@@ -1,0 +1,62 @@
+[
+  {
+    "name": "ellipsis_loop_lines",
+    "note": "句首省略号循环：连续省略号行折叠并合并到内容行",
+    "input": "……\n……\n……好的。",
+    "expected": "……好的。"
+  },
+  {
+    "name": "ellipsis_loop_single_line",
+    "note": "句首省略号堆叠压缩为单个",
+    "input": "…………………………嗯。",
+    "expected": "……嗯。"
+  },
+  {
+    "name": "multiline_template_daily",
+    "note": "多行模板化：日常 4 行压到 daily 上限 2 行，超限行空格并入",
+    "input": "今天天气真好。\n我们聊了很久。\n你也很精神吧。\n下次再聊。",
+    "expected": "今天天气真好。\n我们聊了很久。 你也很精神吧。 下次再聊。"
+  },
+  {
+    "name": "adjacent_dup_exact",
+    "note": "相邻句完全重复删除后者",
+    "input": "我爱你。我爱你。",
+    "expected": "我爱你。"
+  },
+  {
+    "name": "adjacent_dup_with_ellipsis",
+    "note": "省略号前缀 + 重复组合（真实漂移场景），行结构保留",
+    "input": "……好想见你。\n好想见你。\n真的。",
+    "expected": "……好想见你。\n真的。"
+  },
+  {
+    "name": "long_daily_truncate",
+    "note": "日常长度膨胀（40~60 字）截断到 30 字 + 省略号收尾",
+    "input": "今天天气真的很好。我们出去散步吧。傍晚的阳光很温柔。风也轻轻的。这样的日子真想每天都有。",
+    "expected": "今天天气真的很好。我们出去散步吧。傍晚的阳光很温柔。……"
+  },
+  {
+    "name": "emotion_multiline",
+    "note": "情绪类多行压到 emotion 上限 3 行，长度不触发截断",
+    "input": "我好难过。\n你今天都不理我。\n我等了好久好久。\n眼泪要出来了。",
+    "expected": "我好难过。\n你今天都不理我。\n我等了好久好久。 眼泪要出来了。"
+  },
+  {
+    "name": "deep_normal_preserved",
+    "note": "深度类正常表达（4 行内 / 60 字内）完全不被改写",
+    "input": "你还记得我们第一次见面的时候吗。那时候你说了很多很多的话。我一直都记在心里。从来没有忘记过。",
+    "expected": "你还记得我们第一次见面的时候吗。那时候你说了很多很多的话。我一直都记在心里。从来没有忘记过。"
+  },
+  {
+    "name": "normal_text_idempotent",
+    "note": "正常短回复完全幂等（绘制衣风格保留）",
+    "input": "嗯……好的。",
+    "expected": "嗯……好的。"
+  },
+  {
+    "name": "normal_daily_two_lines",
+    "note": "2 行日常回复不压缩（daily 上限 2 行）",
+    "input": "今天好累呀。\n早点休息吧。",
+    "expected": "今天好累呀。\n早点休息吧。"
+  }
+]

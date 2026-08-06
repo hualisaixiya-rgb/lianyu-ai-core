@@ -130,12 +130,14 @@ TABLES = [
 
 # 排除时间戳列：created_at/updated_at 是运行环境固有差异（两次运行时间不同），
 # first_chat_at/last_chat_at 依赖运行时刻 —— 均与拆分行为无关，不参与一致性对比。
+# date：relationship_timeline 按天生成（存 "2026-08-06"），跨天运行必变 —— 与行为无关。
 # 业务列（total_chats/consecutive_days/name/status/summary 等）全部保留。
 EXCLUDED_COLUMNS = {
     "created_at",
     "updated_at",
     "first_chat_at",
     "last_chat_at",
+    "date",
 }
 
 

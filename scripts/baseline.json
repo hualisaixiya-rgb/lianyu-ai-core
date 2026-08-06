@@ -1,8 +1,8 @@
 {
   "meta": {
     "tag": "v3.8.1-stable",
-    "commit": "cf2910fd7a3a8d34c8a77325a3c2a6f36caf29ca",
-    "captured_at": "2026-08-04T13:30:16",
+    "commit": "6798f23ffcfed89c83322cb8b523e4bafa19663d",
+    "captured_at": "2026-08-06T21:31:47",
     "provider": "mock-deterministic",
     "background": "sync-executed"
   },
@@ -126,7 +126,7 @@
         "user_profiles": "4809af8123a4b61e295353b482ce7a7bc047cc5063f2f3d1316960290f1c115a",
         "profile_history": "d4bc47e44d93ed6006732d3512ceae7e034e6f4dce03ac0d69b2dc09a441631a",
         "relationship_metrics": "872f8be7b5ac102786f04df28224e20b3ec77953e250df9f14d004d24c362e72",
-        "relationship_timeline": "a1b8fb3cc1cd105ef24ea1c0ae1cbea050ea1a6e1e4df20d122bf87bef89b6bf",
+        "relationship_timeline": "c72abd4e60d5d6857e0ccecf67ce8a90bfa15ee63dabfe0d06a69b8260f4f704",
         "relationship_memories": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "assertions": {

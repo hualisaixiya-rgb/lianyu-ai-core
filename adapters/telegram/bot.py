@@ -15,6 +15,7 @@ from telegram.request import HTTPXRequest
 from ai.core import AICore, ChatContext
 from config.settings import get_settings
 from loguru import logger
+from utils.response_renderer import render_for_user
 
 
 class TelegramBot:
@@ -190,8 +191,10 @@ class TelegramBot:
 
         try:
             response = await self.ai_core.chat(chat_context)
+            # 表达层：修复格式漂移（省略号循环/多行模板/重复句/超长），再发送
+            user_reply = render_for_user(response.content)
             # 带重试的发送（代理偶尔不稳）
-            await self._reply_with_retry(update, response.content)
+            await self._reply_with_retry(update, user_reply)
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
 
