@@ -57,3 +57,4 @@ archives/
 # 自动部署运行时文件
 .deploy.lock
 .deploy.last_head
+.tmp_pytest/
