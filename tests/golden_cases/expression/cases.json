@@ -76,5 +76,17 @@
     "note": "Stage 0.6：承诺式短表达（无 deep/emotion 关键词）不误伤",
     "input": "无论多久，我都会等你。",
     "expected": "无论多久，我都会等你。"
+  },
+  {
+    "name": "daily_ellipsis_once_per_message",
+    "note": "Stage 0.7：daily 档句首省略号整条 ≤1 次（后续行删除）——多行日常回复不再每行\"……\"",
+    "input": "……啊，是下午呢。\n……我看错了时间，抱歉。",
+    "expected": "……啊，是下午呢。\n我看错了时间，抱歉。"
+  },
+  {
+    "name": "emotion_ellipsis_every_line_kept",
+    "note": "Stage 0.7：emotion 档每行保留句首省略号（情绪工具，不回归）",
+    "input": "……别难过。\n……我在这里。\n……你是安全的。",
+    "expected": "……别难过。\n……我在这里。\n……你是安全的。"
   }
 ]

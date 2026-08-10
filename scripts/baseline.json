@@ -1,8 +1,8 @@
 {
   "meta": {
-    "tag": "v4-stage0.5-stable",
-    "commit": "e1beafb5b6c3f696a8ef9c55460b4314f6781d5e",
-    "captured_at": "2026-08-10T16:15:36",
+    "tag": "v4-stage0.6-stable",
+    "commit": "8f27b71c4355d961c869544dd2243d777f63c228",
+    "captured_at": "2026-08-10T19:04:13",
     "provider": "mock-deterministic",
     "background": "sync-executed"
   },

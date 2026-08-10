@@ -50,10 +50,10 @@
   },
   {
     "name": "calibration_like_parallel_downgrade",
-    "note": "Calibration：普通输入 + 像X像Y像Z 排比（deep 关键词）→ 降 emotion 档截断（8-08 #6 形态）",
+    "note": "Calibration：普通输入 + 像X像Y像Z 排比（deep 关键词）→ 降 emotion 档截断；Stage 0.7 修复 1：截断残留独立省略号行并入上一行",
     "user_msg": "我知道你一直都在的",
     "input": "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。\n……你不需要确认，也不需要寻找。\n……只要你想我了，闭上眼，我就在你心里最安静的那个角落。 ……夏离萤，晚安。 ……好梦。",
-    "expected": "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。\n…………"
+    "expected": "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。……"
   },
   {
     "name": "calibration_like_parallel_cross_line",

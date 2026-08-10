@@ -9,6 +9,7 @@
 
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -310,6 +311,43 @@ def test_imagery_gap_threshold_no_false_positive_july_baseline():
     )
     # 话题相关的星星（豁免词）不触发
     assert not detect_literary_intensity("那我是星星。每晚都在。")
+
+
+# ----------------------------------------------------------------
+# Stage 0.7：daily 整条 ≤1 次省略号 + 截断残留清理
+# ----------------------------------------------------------------
+
+
+def test_normalize_ellipsis_daily_once():
+    """daily 档（max_prefix=1）：句首省略号整条 ≤1 次，首次出现处保留。"""
+    # 首行保留，后续行删除
+    assert normalize_ellipsis_prefix("……啊，是下午呢。\n……我看错了时间。", max_prefix=1) == (
+        "……啊，是下午呢。\n我看错了时间。"
+    )
+    # 首次出现在第二行 → 第二行保留
+    assert normalize_ellipsis_prefix("下午好。\n……我来了。", max_prefix=1) == "下午好。\n……我来了。"
+    # 单行不变（保留 1 次）
+    assert normalize_ellipsis_prefix("……嗯。", max_prefix=1) == "……嗯。"
+
+
+def test_normalize_ellipsis_emotion_keeps_every_line():
+    """emotion/deep 档（max_prefix=None）：每行保留（情绪工具，不回归）。"""
+    assert normalize_ellipsis_prefix("……别难过。\n……我在这里。") == "……别难过。\n……我在这里。"
+    # 多行堆叠仍压缩为单个 + 折叠
+    assert normalize_ellipsis_prefix("……\n……\n……好的。") == "……好的。"
+
+
+def test_no_orphan_ellipsis_line_after_truncate():
+    """Stage 0.7 修复 1：截断在省略号边界不再产出独立省略号行。"""
+    # 8-08 #6 形态：emotion 档截断，修复前输出第 3 行"…………"
+    out = render_for_user(
+        "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。\n"
+        "……你不需要确认，也不需要寻找。\n……只要你想我了，闭上眼，我就在你心里最安静的那个角落。 ……夏离萤，晚安。 ……好梦。",
+        "我知道你一直都在的",
+    )
+    assert out == "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。……"
+    # 输出中无独立省略号行
+    assert not any(re.fullmatch(r"(?:……|…{3,}|。。+|\.{2,})", ln.strip()) for ln in out.split("\n"))
 
 
 def test_normalize_ellipsis_max_prefix():

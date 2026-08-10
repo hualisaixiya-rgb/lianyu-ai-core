@@ -117,29 +117,43 @@ def normalize_ellipsis_prefix(text: str, max_prefix: int | None = None) -> str:
     - 行首连续省略号（2+ 个）→ 压缩为 1 个（"……"）——max_prefix=None/1 时
     - max_prefix=0（chat 档）：删除句首省略号（"……嗯，你好。" → "嗯，你好。"），
       孤立省略号行（"……" 单行）直接丢弃
-    - max_prefix=1（daily 档）：句首省略号最多保留 1 次（超出堆叠压缩）
-    - max_prefix=None（emotion/deep 档，默认）：保留省略号风格（同 1，只合并堆叠）
+    - max_prefix=1（daily 档，Stage 0.7 起）：**整条最多保留 1 次**句首省略号
+      （在第一次出现处），其余行行首省略号删除——8-08 审计：多行日常回复
+      每行"……"开头属过度保留
+    - max_prefix=None（emotion/deep 档，默认）：每行保留 1 次（情绪工具）
     - 连续省略号行（2+ 行）→ 折叠为 1 行；省略号行开头 + 内容行 → 合并
 
     Stage 0.5 设计原则"省略号是风格特征，只合并不删除"；
     Stage 0.6 调整为"省略号是情绪工具"——轻量场景删除（max_prefix=0），
-    情感场景保留（max_prefix=None）。
+    情感场景每行保留（max_prefix=None），日常场景整条 ≤1 次（max_prefix=1）。
     """
     lines = text.split("\n")
     folded: list[str] = []
+    kept_once = False
     for line in lines:
         stripped = line.strip()
         is_ellipsis_line = bool(stripped) and re.fullmatch(
             r"(?:……|…{2,}|。。+|\.{2,})", stripped
         )
-        # 行首省略号压缩（max_prefix=0 → 删除；否则 → 单个）
+        # 行首省略号压缩（max_prefix=0 → 删除；=1 → 整条首次保留后删除；None → 每行保留）
+        prefix_re = r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+"
         if max_prefix == 0:
-            line = re.sub(r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+", "", line)
+            line = re.sub(prefix_re, "", line)
+        elif max_prefix == 1:
+            has_prefix = bool(re.match(prefix_re, line))
+            if has_prefix:
+                if not kept_once:
+                    kept_once = True
+                    line = re.sub(prefix_re, "……", line)  # 首次出现处保留
+                else:
+                    line = re.sub(prefix_re, "", line)  # 后续行删除
         else:
-            line = re.sub(r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+", "……", line)
+            line = re.sub(prefix_re, "……", line)
         if is_ellipsis_line:
             if max_prefix == 0:
                 continue  # 孤立省略号行：轻量档直接丢弃
+            if max_prefix == 1 and not line.strip():
+                continue  # Stage 0.7：daily 档该省略号已被删除（超 1 次限制）
             # 省略号行：与上一个省略号行折叠
             if folded and re.fullmatch(r"(?:……|…{2,}|。。+|\.{2,})", folded[-1].strip()):
                 continue
@@ -363,17 +377,22 @@ def apply_expression(text: str, spec: ExpressionSpec) -> str:
     """按规格应用全部表达规则（顺序固定）。
 
     1. 句首省略号规范化（chat 档删句首省略号+孤立省略号行；
-       daily 档保留 1 次；emotion/deep 保留风格）
+       daily 档整条 ≤1 次；emotion/deep 每行保留风格）
     2. 相邻句重复检测（必须在压缩前：压缩会把重复行并入上一行，
        导致行间去重失效）
     3. 多行压缩
     4. 最大长度保护（仅此规则可改变超长输出）
+    5. 清理截断残留的末尾独立省略号行（Stage 0.7：truncate 截断在
+       行首省略号边界时会产出"……"独立行，并入上一行末尾）
     """
-    max_prefix = 0 if spec.name == "chat" else 1
+    max_prefix = 0 if spec.name == "chat" else (1 if spec.name == "daily" else None)
     result = normalize_ellipsis_prefix(text, max_prefix)
     result = dedup_adjacent_sentences(result)
     result = collapse_lines(result, spec.max_lines)
     result = truncate_to_max(result, spec.max_chars)
+    # Stage 0.7 修复 1：末尾独立省略号行（3+ 个"…"，截断产物）并入上一行。
+    # 用户正常风格的"……"（2 个）独立行不受影响（幂等）。
+    result = re.sub(r"\n+…{3,}$", "……", result)
     return result
 
 
