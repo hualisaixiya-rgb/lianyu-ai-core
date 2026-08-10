@@ -29,18 +29,20 @@ from ai.expression import apply_expression, infer_spec, collapse_lines, dedup_ad
 _STORAGE_MAX_LINES = 4
 
 
-def render_for_user(text: str) -> str:
+def render_for_user(text: str, user_msg: str | None = None) -> str:
     """用户可见输出渲染（Telegram / API / 其他前端）。
 
-    应用表达层全部规则（按内容自动推断 daily/emotion/deep 规格）：
-    - 句首省略号规范化
-    - 多行压缩
-    - 相邻句重复检测
-    - 最大长度保护（截断超长回复）
+    应用表达层全部规则（按内容 + 用户消息上下文推断 chat/daily/emotion/deep 规格）：
+    - Stage 0.5：句首省略号规范化 / 多行压缩 / 相邻句重复检测 / 最大长度保护
+    - Stage 0.6 表达强度调节：
+      * 用户轻量问候 → chat 档（删句首省略号，25 字/2 行收紧）
+      * 用户高情绪 → 保留深情表达（不降档）
+      * 普通输入 + 高浓度文学回复（意象堆叠/承诺式）→ deep 降 emotion 收紧
 
-    只修复格式漂移，不改变人格与语义。正常输出幂等。
+    只修复格式漂移与呈现强度，不改变人格与语义。正常输出幂等。
+    不传 user_msg → 行为与 Stage 0.5 一致（向后兼容）。
     """
-    return apply_expression(text, infer_spec(text))
+    return apply_expression(text, infer_spec(text, user_msg))
 
 
 def render_for_cli(text: str) -> str:

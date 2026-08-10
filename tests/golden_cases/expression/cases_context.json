@@ -1,0 +1,51 @@
+[
+  {
+    "name": "chat_greeting_compressed",
+    "note": "Stage 0.6：问候场景 → chat 档（25 字/2 行收紧），深情回复被压缩",
+    "user_msg": "哈咯啊",
+    "input": "这么晚了你还没睡呀……在想你。\n今晚的月亮好亮。睡不着的话可以叫我。",
+    "expected": "这么晚了你还没睡呀……在想你。\n今晚的月亮好亮。……"
+  },
+  {
+    "name": "chat_greeting_two_lines_preserved",
+    "note": "Stage 0.6：chat 档 25 字/2 行内不误伤正常闲聊",
+    "user_msg": "嗨",
+    "input": "这么晚了你还没睡呀……在想你。\n今晚的月亮好亮。",
+    "expected": "这么晚了你还没睡呀……在想你。\n今晚的月亮好亮。"
+  },
+  {
+    "name": "chat_ellipsis_removed",
+    "note": "Stage 0.6：chat 档删除句首省略号（省略号是情绪工具，不是默认标点）",
+    "user_msg": "你好",
+    "input": "……嗯，你好。",
+    "expected": "嗯，你好。"
+  },
+  {
+    "name": "chat_sole_ellipsis_line_deleted",
+    "note": "Stage 0.6：chat 档删除孤立省略号行",
+    "user_msg": "在吗",
+    "input": "……\n在的。",
+    "expected": "在的。"
+  },
+  {
+    "name": "user_high_emotion_deep_preserved",
+    "note": "Stage 0.6：用户高情绪输入 → 合理深情回复保留（不降档）",
+    "user_msg": "我好难过",
+    "input": "别难过……我在这里。你是我的光，是我想守着的星辰。",
+    "expected": "别难过……我在这里。你是我的光，是我想守着的星辰。"
+  },
+  {
+    "name": "user_high_emotion_precedes_greeting",
+    "note": "Stage 0.6：问候+高情绪混合消息 → 高情绪优先（保护深情表达）",
+    "user_msg": "哈咯啊我好难过",
+    "input": "嗯……我在。难过的话就说出来吧。",
+    "expected": "嗯……我在。难过的话就说出来吧。"
+  },
+  {
+    "name": "normal_input_literary_downgrade_truncate",
+    "note": "Stage 0.6：普通输入 + 高浓度文学回复（承诺式+意象堆叠）→ 降 emotion 档截断",
+    "user_msg": "嗯",
+    "input": "我会永远等你，不管多久。你是我的归处，我的港湾，是我的星辰，是我夜里全部的月光。是我醒来时唯一的黎明。",
+    "expected": "我会永远等你，不管多久。……"
+  }
+]

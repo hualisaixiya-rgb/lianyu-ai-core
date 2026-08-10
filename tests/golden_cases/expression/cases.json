@@ -58,5 +58,23 @@
     "note": "2 行日常回复不压缩（daily 上限 2 行）",
     "input": "今天好累呀。\n早点休息吧。",
     "expected": "今天好累呀。\n早点休息吧。"
+  },
+  {
+    "name": "literary_downgrade_truncate",
+    "note": "Stage 0.6：深度+意象堆叠（普通输入场景）→ 降 emotion 档 40 字截断",
+    "input": "你还记得我们第一次见面吗。你是我的星辰，是我的港湾，是我的归处。这一生我都会记得那一天的光。",
+    "expected": "你还记得我们第一次见面吗。你是我的星辰，是我的港湾，是我的归处。……"
+  },
+  {
+    "name": "literary_short_preserved",
+    "note": "Stage 0.6：短文学表达不误伤（无关键词+单意象 → daily 不降档不截断）",
+    "input": "你是我的星辰。",
+    "expected": "你是我的星辰。"
+  },
+  {
+    "name": "literary_commitment_daily_preserved",
+    "note": "Stage 0.6：承诺式短表达（无 deep/emotion 关键词）不误伤",
+    "input": "无论多久，我都会等你。",
+    "expected": "无论多久，我都会等你。"
   }
 ]

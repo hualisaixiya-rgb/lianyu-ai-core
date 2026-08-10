@@ -13,13 +13,17 @@ import pathlib
 import pytest
 
 from ai.expression import (
+    CHAT_SPEC,
     DAILY_SPEC,
     DEEP_SPEC,
     EMOTION_SPEC,
     apply_expression,
     collapse_lines,
     dedup_adjacent_sentences,
+    detect_literary_intensity,
     infer_spec,
+    is_greeting,
+    is_high_emotion,
     normalize_ellipsis_prefix,
     truncate_to_max,
 )
@@ -27,6 +31,7 @@ from utils.response_renderer import render_for_storage, render_for_user
 
 GOLDEN_DIR = pathlib.Path(__file__).parent / "golden_cases" / "expression"
 GOLDEN_FILE = GOLDEN_DIR / "cases.json"
+GOLDEN_CONTEXT_FILE = GOLDEN_DIR / "cases_context.json"
 
 # baseline_capture.py MockProvider 的确定性回复（checksum 保护对象）
 MOCK_REPLIES = [
@@ -142,3 +147,120 @@ def test_truncate_to_max_unit():
     assert out.endswith("……") and len(out) <= 32
     # 短文本不动
     assert truncate_to_max("嗯。", 30) == "嗯。"
+
+
+# ----------------------------------------------------------------
+# Stage 0.6：上下文 golden regression（cases_context.json）
+# ----------------------------------------------------------------
+
+
+def _golden_context_cases() -> list[dict]:
+    assert GOLDEN_CONTEXT_FILE.exists(), f"golden 文件缺失: {GOLDEN_CONTEXT_FILE}"
+    with open(GOLDEN_CONTEXT_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+@pytest.mark.parametrize("case", _golden_context_cases(), ids=lambda c: c["name"])
+def test_render_for_user_golden_with_context(case: dict):
+    """带用户消息上下文的 golden：render_for_user(input, user_msg) 精确等于 expected。"""
+    assert render_for_user(case["input"], case["user_msg"]) == case["expected"], (
+        f"context golden 失败: {case['name']} ({case.get('note', '')})"
+    )
+
+
+# ----------------------------------------------------------------
+# Stage 0.6：规格推断（上下文感知）
+# ----------------------------------------------------------------
+
+
+def test_specs_monotonic_with_chat():
+    """四档规格严格递增：chat < daily < emotion < deep。"""
+    assert CHAT_SPEC.max_chars < DAILY_SPEC.max_chars < EMOTION_SPEC.max_chars < DEEP_SPEC.max_chars
+    assert CHAT_SPEC.max_lines <= DAILY_SPEC.max_lines
+
+
+def test_is_greeting_unit():
+    assert is_greeting("哈咯啊")
+    assert is_greeting("你好")
+    assert is_greeting("在吗")
+    assert is_greeting("早安")
+    assert is_greeting("早呀")
+    assert not is_greeting("我好难过")
+    assert not is_greeting("今天天气不错")
+    assert not is_greeting("早知道就好了")
+
+
+def test_is_high_emotion_unit():
+    assert is_high_emotion("我好难过")
+    assert is_high_emotion("想你了")
+    assert is_high_emotion("最近总失眠")
+    assert is_high_emotion("好累啊")
+    assert not is_high_emotion("哈咯啊")
+    assert not is_high_emotion("今天天气不错")
+
+
+def test_infer_chat_on_greeting():
+    """问候 → chat 档（即使回复含情绪/深度词）。"""
+    assert infer_spec("嗯……我也想你。", "哈咯啊") is CHAT_SPEC
+    assert infer_spec("今天过得怎么样呀？", "你好") is CHAT_SPEC
+
+
+def test_infer_no_downgrade_on_user_emotion():
+    """用户高情绪 → 保留关键词档（合理深情回复不降档）。"""
+    reply = "别难过……我在这里。你是我的光。"
+    assert infer_spec(reply, "我好难过") is EMOTION_SPEC
+    # 高情绪优先于问候（混合消息保护深情）
+    assert infer_spec("嗯……我好想见你。", "哈咯啊我好难过") is EMOTION_SPEC
+
+
+def test_infer_literary_downgrade_deep():
+    """普通/无上下文 + deep 关键词 + 文学强度 → 降 emotion 档。"""
+    reply = "你还记得吗。你是我的星辰，是我的归处。永远都不忘记。"
+    assert infer_spec(reply) is EMOTION_SPEC
+    assert infer_spec(reply, "嗯") is EMOTION_SPEC
+
+
+def test_infer_daily_literary_preserved():
+    """无关键词的短文学/承诺表达 → daily 不降档（不误伤）。"""
+    assert infer_spec("无论多久，我都会等你。") is DAILY_SPEC
+    assert infer_spec("你是我的星辰。") is DAILY_SPEC
+
+
+def test_detect_literary_intensity_rules():
+    """文学强度三规则命中。"""
+    # 规则 1：文学词 + 情绪词组合
+    assert detect_literary_intensity("我好难过……你是我的星辰。")
+    # 规则 2：抽象意象连续堆叠（排比）
+    assert detect_literary_intensity("你是我的星辰，是我的港湾，是我的归处。")
+    # 规则 3：高浓度承诺式
+    assert detect_literary_intensity("无论多远，我都会陪着你。")
+    assert detect_literary_intensity("我会永远等你。")
+
+
+def test_detect_literary_intensity_no_false_positive():
+    """防误伤：话题相关的星星/风/光、轻度"一直"承诺不触发。"""
+    assert not detect_literary_intensity("嗯。那我是星星。每晚都在。")
+    assert not detect_literary_intensity("辛苦了。星星都出来了……它们也在看。")
+    assert not detect_literary_intensity("那我会一直陪着你……直到排练结束。")
+    assert not detect_literary_intensity("和你聊天很开心。")
+    assert not detect_literary_intensity("风扇别直吹脸……睡着了会头疼。")
+
+
+def test_normalize_ellipsis_max_prefix():
+    """省略号强度档位：0=删除，1=保留单次，None=现行为。"""
+    # chat 档：删除句首省略号 + 孤立省略号行
+    assert normalize_ellipsis_prefix("……嗯，你好。", max_prefix=0) == "嗯，你好。"
+    assert normalize_ellipsis_prefix("……\n在的。", max_prefix=0) == "在的。"
+    # daily 档：压缩堆叠为单次
+    assert normalize_ellipsis_prefix("……………………嗯。", max_prefix=1) == "……嗯。"
+    assert normalize_ellipsis_prefix("……\n……\n……好的。", max_prefix=1) == "……好的。"
+    # None = Stage 0.5 现行为（等价）
+    assert normalize_ellipsis_prefix("……嗯。") == "……嗯。"
+    assert normalize_ellipsis_prefix("嗯……好的。") == "嗯……好的。"
+
+
+def test_chat_spec_strips_ellipsis_via_render():
+    """完整链路：chat 档渲染删句首省略号。"""
+    assert render_for_user("……嗯，你好。", "你好") == "嗯，你好。"
+    # 无上下文（daily）保留省略号 → 兼容 Stage 0.5
+    assert render_for_user("……嗯，你好。") == "……嗯，你好。"

@@ -58,8 +58,8 @@ async def chat(req: ChatRequest) -> ChatReply:
             message=req.message,
         )
         resp = await get_core().chat(ctx)
-        # 表达层：修复格式漂移后返回（超长截断/省略号规范化/多行压缩/重复检测）
-        return ChatReply(reply=render_for_user(resp.content))
+        # 表达层：修复格式漂移 + 按场景调节表达强度（用户消息上下文）后返回
+        return ChatReply(reply=render_for_user(resp.content, req.message))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

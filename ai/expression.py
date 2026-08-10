@@ -43,6 +43,10 @@ class ExpressionSpec:
 DAILY_SPEC = ExpressionSpec(name="daily", max_chars=30, max_lines=2)
 EMOTION_SPEC = ExpressionSpec(name="emotion", max_chars=40, max_lines=3)
 DEEP_SPEC = ExpressionSpec(name="deep", max_chars=60, max_lines=4)
+# Stage 0.6 新增：轻量聊天档（打招呼/闲聊/简单互动）。
+# 25 字/2 行为实验值（设计确认时指定 25-35 范围，避免复杂日常场景过度压缩），
+# 最终参数以 8-08 真实归档校准为准。
+CHAT_SPEC = ExpressionSpec(name="chat", max_chars=25, max_lines=2)
 
 # 深度词优先级高于情绪词（"还记得我们第一次…" 属于 deep 而非 emotion）
 # 只收强深度词；"很久"等日常用语不触发（避免日常回复被放宽到 deep 档）
@@ -54,6 +58,38 @@ DEEP_KEYWORDS = (
 EMOTION_KEYWORDS = (
     "难过", "开心", "生气", "哭", "爱", "担心", "委屈", "害怕",
     "孤独", "抱抱", "心疼", "好想", "舍不得",
+)
+
+# Stage 0.6：用户消息高情绪词（用户表达真实情绪 → 合理深情回复保留，不降档）
+USER_EMOTION_KEYWORDS = (
+    "难过", "伤心", "哭", "害怕", "孤独", "委屈", "生气", "愤怒", "焦虑",
+    "失眠", "睡不着", "生病", "难受", "心疼", "舍不得", "压力", "撑不住",
+    "崩溃", "绝望", "痛苦", "无助", "疲惫", "好累", "很累", "太累", "累了",
+    "想你了", "好想你", "很想你", "担忧", "担心", "不安", "烦死", "讨厌", "想哭",
+)
+
+# Stage 0.6：高浓度文学词（意象检测用）。
+# 故意不含"星星/风/光"等日常可中性使用的词——避免误伤话题相关正常表达
+# （生产数据中"那我是星星。每晚都在。"等是回应用户话题，非漂移）。
+LITERARY_KEYWORDS = (
+    "星辰", "港湾", "锚点", "归处", "银河", "月光", "星光", "黎明",
+    "灯塔", "远山", "大海", "流星", "四季", "轮回", "永恒", "星河",
+)
+
+# Stage 0.6：轻量问候模式（用户打招呼 → chat 档）。
+# "早"仅精确匹配整句（"早呀/早。"），避免误伤"早知道…"等。
+_GREETING_PATTERNS = (
+    r"^(你好|哈咯|哈喽|嗨|嗨喽|在吗|早安|早上好|下午好|晚上好|晚安|嘿嘿|哟|hello|hi|hey)",
+    r"^早[呀啊]?$",
+)
+
+# 抽象意象排比模式（"是我的星辰，是我的港湾" 类堆叠）
+_IMAGE_STACK_PATTERN = (
+    r"(?:是我(?:的)?|是(?:我的)?)(?:星辰|港湾|锚点|归处|月光|星光|银河|灯塔|永恒|星河|梦|光|风|海|世界)"
+)
+# 高浓度承诺式（永远/无论… + 等/陪/守/留/爱…）。"一直"故意不收（轻度，不降档）
+_COMMITMENT_PATTERN = re.compile(
+    r"(?:永远|一辈子|此生|无论[^。！？]{0,6})[^。！？]{0,8}(?:等|陪|守|留|爱|记得|都在|不走|守护|不会离开)"
 )
 
 # 句子切分符（重复检测用，不含 "…" —— 省略号是绘梨衣风格特征，不得切分）
@@ -68,22 +104,35 @@ _TRUNCATE_END = _SENTENCE_END + "…"
 # ----------------------------------------------------------------
 
 
-def normalize_ellipsis_prefix(text: str) -> str:
-    """句首省略号规范化。
+def normalize_ellipsis_prefix(text: str, max_prefix: int | None = None) -> str:
+    """句首省略号规范化（Stage 0.6 增加强度档位）。
 
-    - 行首连续省略号（2+ 个）→ 压缩为 1 个（"……"）
-    - 连续省略号行（2+ 行，如 "……\n……\n……"）→ 折叠为 1 行
-    - 文本以省略号行开头且后接内容行 → 合并为 "……{内容}"（消除循环）
+    - 行首连续省略号（2+ 个）→ 压缩为 1 个（"……"）——max_prefix=None/1 时
+    - max_prefix=0（chat 档）：删除句首省略号（"……嗯，你好。" → "嗯，你好。"），
+      孤立省略号行（"……" 单行）直接丢弃
+    - max_prefix=1（daily 档）：句首省略号最多保留 1 次（超出堆叠压缩）
+    - max_prefix=None（emotion/deep 档，默认）：保留省略号风格（同 1，只合并堆叠）
+    - 连续省略号行（2+ 行）→ 折叠为 1 行；省略号行开头 + 内容行 → 合并
 
-    省略号本身是绘梨衣风格特征，只合并堆叠，不删除。
+    Stage 0.5 设计原则"省略号是风格特征，只合并不删除"；
+    Stage 0.6 调整为"省略号是情绪工具"——轻量场景删除（max_prefix=0），
+    情感场景保留（max_prefix=None）。
     """
     lines = text.split("\n")
     folded: list[str] = []
     for line in lines:
         stripped = line.strip()
-        # 行首连续省略号压缩为单个
-        line = re.sub(r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+", "……", line)
-        if stripped and re.fullmatch(r"(?:……|…{2,}|。。+|\.{2,})", stripped):
+        is_ellipsis_line = bool(stripped) and re.fullmatch(
+            r"(?:……|…{2,}|。。+|\.{2,})", stripped
+        )
+        # 行首省略号压缩（max_prefix=0 → 删除；否则 → 单个）
+        if max_prefix == 0:
+            line = re.sub(r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+", "", line)
+        else:
+            line = re.sub(r"^(?:(?:\.\.\.\.|…{2,}|。。+|\.{2,})\s*)+", "……", line)
+        if is_ellipsis_line:
+            if max_prefix == 0:
+                continue  # 孤立省略号行：轻量档直接丢弃
             # 省略号行：与上一个省略号行折叠
             if folded and re.fullmatch(r"(?:……|…{2,}|。。+|\.{2,})", folded[-1].strip()):
                 continue
@@ -206,15 +255,57 @@ def truncate_to_max(text: str, max_chars: int) -> str:
 
 
 # ----------------------------------------------------------------
+# Stage 0.6：场景判断（问候 / 高情绪 / 文学强度）
+# ----------------------------------------------------------------
+
+
+def is_greeting(user_msg: str) -> bool:
+    """用户消息是否为轻量问候（打招呼 → chat 档）。"""
+    m = user_msg.strip()
+    return any(re.match(p, m) for p in _GREETING_PATTERNS)
+
+
+def is_high_emotion(user_msg: str) -> bool:
+    """用户消息是否含高情绪表达（难过/哭/想你了… → 保留深情表达）。"""
+    return any(k in user_msg for k in USER_EMOTION_KEYWORDS)
+
+
+def detect_literary_intensity(text: str) -> bool:
+    """文学强度检测（三条规则任一命中 → 高浓度）。
+
+    1. 文学词 + 情绪词组合（"我好难过……你是我的星辰"）
+    2. 抽象意象连续堆叠（"是我的星辰，是我的港湾" 排比 ≥2；
+       或同句意象间距 ≤15 字）
+    3. 高浓度承诺式表达（"永远/无论… + 等/陪/守"）
+
+    防误伤设计：
+    - "星星/风/光"等日常中性词不在意象表（话题相关正常表达不触发）
+    - "一直"不在承诺触发词（"我会一直陪着你" 轻度，不降档）
+    """
+    # 规则 1：文学词 + 情绪词组合
+    if any(k in text for k in LITERARY_KEYWORDS) and any(k in text for k in EMOTION_KEYWORDS):
+        return True
+    # 规则 2：抽象意象堆叠
+    if len(re.findall(_IMAGE_STACK_PATTERN, text)) >= 2:
+        return True
+    positions = sorted(m.start() for m in re.finditer(
+        r"(星辰|港湾|锚点|归处|银河|月光|星光|永恒|星河|灯塔)", text
+    ))
+    if len(positions) >= 2 and any(b - a <= 15 for a, b in zip(positions, positions[1:])):
+        return True
+    # 规则 3：高浓度承诺式
+    if _COMMITMENT_PATTERN.search(text):
+        return True
+    return False
+
+
+# ----------------------------------------------------------------
 # 规格推断 + 组合应用
 # ----------------------------------------------------------------
 
 
-def infer_spec(text: str) -> ExpressionSpec:
-    """按回复内容推断表达规格（轻量关键词，不调 LLM）。
-
-    优先级：deep > emotion > daily。
-    """
+def _keyword_spec(text: str) -> ExpressionSpec:
+    """按回复关键词推断规格（无上下文）：deep > emotion > daily。"""
     if any(k in text for k in DEEP_KEYWORDS):
         return DEEP_SPEC
     if any(k in text for k in EMOTION_KEYWORDS):
@@ -222,22 +313,51 @@ def infer_spec(text: str) -> ExpressionSpec:
     return DAILY_SPEC
 
 
+def infer_spec(text: str, user_msg: str | None = None) -> ExpressionSpec:
+    """按回复内容 + 用户消息上下文推断表达规格。
+
+    Stage 0.6 上下文感知（使表达强度匹配聊天场景）：
+    1. 用户消息高情绪（难过/哭/想你了…）→ 保留关键词档，不降档
+       —— 用户高情绪输入 → 合理深情回复：保留
+    2. 用户消息轻量问候（你好/哈咯/在吗…）→ chat 档（优先于关键词档）
+       —— 普通输入 → 深情回复：压缩为轻量
+    3. 无上下文 / 普通输入：关键词推断；回复文学强度高且落 deep 档
+       → 降 emotion 档（收紧呈现峰值）
+       —— 普通用户输入 → 高浓度文学回复：降档
+
+    优先级：高情绪 > 问候 > 关键词（+ deep 文学降档）。
+    不传 user_msg → 行为与 Stage 0.5 完全一致（向后兼容）。
+    """
+    if user_msg:
+        um = user_msg.strip()
+        if is_high_emotion(um):
+            return _keyword_spec(text)
+        if is_greeting(um):
+            return CHAT_SPEC
+    spec = _keyword_spec(text)
+    if spec.name == "deep" and detect_literary_intensity(text):
+        return EMOTION_SPEC
+    return spec
+
+
 def apply_expression(text: str, spec: ExpressionSpec) -> str:
     """按规格应用全部表达规则（顺序固定）。
 
-    1. 句首省略号规范化
+    1. 句首省略号规范化（chat 档删句首省略号+孤立省略号行；
+       daily 档保留 1 次；emotion/deep 保留风格）
     2. 相邻句重复检测（必须在压缩前：压缩会把重复行并入上一行，
        导致行间去重失效）
     3. 多行压缩
     4. 最大长度保护（仅此规则可改变超长输出）
     """
-    result = normalize_ellipsis_prefix(text)
+    max_prefix = 0 if spec.name == "chat" else 1
+    result = normalize_ellipsis_prefix(text, max_prefix)
     result = dedup_adjacent_sentences(result)
     result = collapse_lines(result, spec.max_lines)
     result = truncate_to_max(result, spec.max_chars)
     return result
 
 
-def render_expression(text: str) -> str:
-    """完整入口：推断规格 + 应用规则。"""
-    return apply_expression(text, infer_spec(text))
+def render_expression(text: str, user_msg: str | None = None) -> str:
+    """完整入口：推断规格（含用户消息上下文）+ 应用规则。"""
+    return apply_expression(text, infer_spec(text, user_msg))
