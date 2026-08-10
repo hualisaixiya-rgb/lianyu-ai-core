@@ -87,6 +87,13 @@ _GREETING_PATTERNS = (
 _IMAGE_STACK_PATTERN = (
     r"(?:是我(?:的)?|是(?:我的)?)(?:星辰|港湾|锚点|归处|月光|星光|银河|灯塔|永恒|星河|梦|光|风|海|世界)"
 )
+# Stage 0.6 Calibration："像X，像Y，像Z"比喻排比（≥3 项连续，项长 ≤12）。
+# 只收三连结构——"像你，像我"（2 项）与"像你一样"（1 项）是日常表达，不触发。
+_LIKE_PARALLEL_PATTERN = re.compile(
+    r"像[^，,。！？!?…\n]{1,12}[，,]\s*"
+    r"像[^，,。！？!?…\n]{1,12}[，,]\s*"
+    r"像[^，,。！？!?…\n]{1,12}"
+)
 # 高浓度承诺式（永远/无论… + 等/陪/守/留/爱…）。"一直"故意不收（轻度，不降档）
 _COMMITMENT_PATTERN = re.compile(
     r"(?:永远|一辈子|此生|无论[^。！？]{0,6})[^。！？]{0,8}(?:等|陪|守|留|爱|记得|都在|不走|守护|不会离开)"
@@ -270,31 +277,43 @@ def is_high_emotion(user_msg: str) -> bool:
     return any(k in user_msg for k in USER_EMOTION_KEYWORDS)
 
 
-def detect_literary_intensity(text: str) -> bool:
+def detect_literary_intensity(text: str, detection_text: str | None = None) -> bool:
     """文学强度检测（三条规则任一命中 → 高浓度）。
 
     1. 文学词 + 情绪词组合（"我好难过……你是我的星辰"）
     2. 抽象意象连续堆叠（"是我的星辰，是我的港湾" 排比 ≥2；
-       或同句意象间距 ≤15 字）
+       或同句意象间距 ≤15 字；或"像X，像Y，像Z"比喻排比 ≥3 项）
     3. 高浓度承诺式表达（"永远/无论… + 等/陪/守"）
+
+    detection_text: 可选，仅用于检测的归一化文本（Stage 0.6 Calibration）。
+      调用方传入 text.replace("\\n", " ") 时，跨行意象（行尾意象 + 下行意象）
+      可被间距/排比规则检测；None 时用原 text。**不影响展示文本格式**。
 
     防误伤设计：
     - "星星/风/光"等日常中性词不在意象表（话题相关正常表达不触发）
     - "一直"不在承诺触发词（"我会一直陪着你" 轻度，不降档）
+    - "像"排比只收 ≥3 项连续结构（"像你，像我"等 2 项日常表达不触发）
     """
+    d = text if detection_text is None else detection_text
     # 规则 1：文学词 + 情绪词组合
-    if any(k in text for k in LITERARY_KEYWORDS) and any(k in text for k in EMOTION_KEYWORDS):
+    if any(k in d for k in LITERARY_KEYWORDS) and any(k in d for k in EMOTION_KEYWORDS):
         return True
     # 规则 2：抽象意象堆叠
-    if len(re.findall(_IMAGE_STACK_PATTERN, text)) >= 2:
+    if len(re.findall(_IMAGE_STACK_PATTERN, d)) >= 2:
         return True
     positions = sorted(m.start() for m in re.finditer(
-        r"(星辰|港湾|锚点|归处|银河|月光|星光|永恒|星河|灯塔)", text
+        r"(星辰|港湾|锚点|归处|银河|月光|星光|永恒|星河|灯塔)", d
     ))
-    if len(positions) >= 2 and any(b - a <= 15 for a, b in zip(positions, positions[1:])):
+    # 间距阈值 25：允许跨行意象（行尾意象 + 下行意象）。
+    # Calibration 依据：8-08 #3 "锚点→港湾" 跨行间距实测 23（原 15 漏检）；
+    # 7 月生产基线 287 条含 ≥2 意象词的消息为 0 → 放宽零新增命中（零误伤）。
+    if len(positions) >= 2 and any(b - a <= 25 for a, b in zip(positions, positions[1:])):
+        return True
+    # 规则 2c（Calibration 新增）："像X，像Y，像Z"比喻排比
+    if _LIKE_PARALLEL_PATTERN.search(d):
         return True
     # 规则 3：高浓度承诺式
-    if _COMMITMENT_PATTERN.search(text):
+    if _COMMITMENT_PATTERN.search(d):
         return True
     return False
 
@@ -335,7 +354,7 @@ def infer_spec(text: str, user_msg: str | None = None) -> ExpressionSpec:
         if is_greeting(um):
             return CHAT_SPEC
     spec = _keyword_spec(text)
-    if spec.name == "deep" and detect_literary_intensity(text):
+    if spec.name == "deep" and detect_literary_intensity(text, text.replace("\n", " ")):
         return EMOTION_SPEC
     return spec
 

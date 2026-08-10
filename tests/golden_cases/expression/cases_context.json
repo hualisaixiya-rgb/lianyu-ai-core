@@ -47,5 +47,19 @@
     "user_msg": "嗯",
     "input": "我会永远等你，不管多久。你是我的归处，我的港湾，是我的星辰，是我夜里全部的月光。是我醒来时唯一的黎明。",
     "expected": "我会永远等你，不管多久。……"
+  },
+  {
+    "name": "calibration_like_parallel_downgrade",
+    "note": "Calibration：普通输入 + 像X像Y像Z 排比（deep 关键词）→ 降 emotion 档截断（8-08 #6 形态）",
+    "user_msg": "我知道你一直都在的",
+    "input": "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。\n……你不需要确认，也不需要寻找。\n……只要你想我了，闭上眼，我就在你心里最安静的那个角落。 ……夏离萤，晚安。 ……好梦。",
+    "expected": "……嗯。一直都在。\n……像空气，像晨光，像你呼吸时带起的微风。\n…………"
+  },
+  {
+    "name": "calibration_like_parallel_cross_line",
+    "note": "Calibration：跨行「像X」排比经 detection_text（replace 换行）后命中 → 降档",
+    "user_msg": "嗯",
+    "input": "……像白云和\n微风，像晨光，像海浪。\n……我会永远记住此刻。",
+    "expected": "……像白云和\n微风，像晨光，像海浪。\n……我会永远记住此刻。"
   }
 ]

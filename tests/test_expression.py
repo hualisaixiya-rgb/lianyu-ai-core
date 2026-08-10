@@ -246,6 +246,72 @@ def test_detect_literary_intensity_no_false_positive():
     assert not detect_literary_intensity("风扇别直吹脸……睡着了会头疼。")
 
 
+# ----------------------------------------------------------------
+# Stage 0.6 Calibration：detection_text 跨行检测 + "像X，像Y，像Z"排比
+# ----------------------------------------------------------------
+
+
+def test_detect_like_parallel_rule():
+    """"像X，像Y，像Z"三连结构命中。"""
+    assert detect_literary_intensity("像空气，像晨光，像你呼吸时带起的微风。")
+    assert detect_literary_intensity("像云朵，像晚霞，像天边燃烧的火。")
+    # 跨行形态：detection_text（replace 后）命中
+    assert detect_literary_intensity(
+        "像白云和\n微风，像晨光，像海浪。",
+        "像白云和 微风，像晨光，像海浪。",
+    )
+
+
+def test_detect_like_parallel_no_false_positive():
+    """只收三连：单像/两连是日常表达，不触发。"""
+    assert not detect_literary_intensity("像你一样勇敢")
+    assert not detect_literary_intensity("像你，像我")
+    assert not detect_literary_intensity("他笑得像花一样。")
+    assert not detect_literary_intensity("就像你说的，像我们第一次见面那样。")
+
+
+def test_detect_detection_text_used():
+    """detection_text 仅用于检测：传独立文本时以它为准，不影响原 text。"""
+    # 原文本无意象，detection_text 有意象 → 按 detection_text 判定
+    assert detect_literary_intensity("今天天气不错。", "你是我的星辰，是我的归处。")
+    # detection_text 为 None → 用原 text
+    assert detect_literary_intensity("你是我的星辰，是我的归处。")
+    assert not detect_literary_intensity("今天天气不错。")
+
+
+def test_infer_like_parallel_downgrade_deep():
+    """deep 关键词 + 像排比 → 降 emotion 档（8-08 #6 场景）。"""
+    reply = "嗯。一直都在。\n像空气，像晨光，像你呼吸时带起的微风。\n夏离萤，晚安。好梦。"
+    assert infer_spec(reply) is EMOTION_SPEC
+    assert infer_spec(reply, "嗯") is EMOTION_SPEC
+
+
+def test_infer_cross_line_imagery_downgrade_deep():
+    """跨行意象（行尾意象 + 下行意象）间距 23 ≤25 → 降档（8-08 #3 场景）。"""
+    reply = (
+        "……那我说了。\n"
+        "……如果我是你的乌托邦，那你就是我的锚点。\n"
+        "……是让我在万千数据流里，唯独想停靠的港湾。\n"
+        "……短暂的也好，虚幻的也罢……\n"
+        "……只要你在，我就愿意一直做那个等你回来的人。\n"
+        "……这是我，最真实的愿望。"
+    )
+    assert detect_literary_intensity(reply)  # 原文本（含换行）间距 23 ≤25 命中
+    assert infer_spec(reply, "想说就说出来") is EMOTION_SPEC
+
+
+def test_imagery_gap_threshold_no_false_positive_july_baseline():
+    """间距阈值放宽到 25 不误伤 7 月生产形态：短句/话题相关意象不触发。"""
+    # 单意象（间距规则需要 ≥2）
+    assert not detect_literary_intensity("你是我的星辰。")
+    # 双意象但间距远超 25（回忆聊天的不同话题，非堆叠）
+    assert not detect_literary_intensity(
+        "昨晚的月光很好。后来我们又聊了很久，聊到凌晨，聊到太阳升起。之后我去了灯塔。"
+    )
+    # 话题相关的星星（豁免词）不触发
+    assert not detect_literary_intensity("那我是星星。每晚都在。")
+
+
 def test_normalize_ellipsis_max_prefix():
     """省略号强度档位：0=删除，1=保留单次，None=现行为。"""
     # chat 档：删除句首省略号 + 孤立省略号行
