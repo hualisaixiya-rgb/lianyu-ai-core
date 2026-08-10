@@ -85,20 +85,25 @@ class Character:
                 first = first[:60]
             lines.append(f"{first}。")
 
-        # 说话方式 —— 只提取描述性内容，跳过元指令
+        # 说话方式 —— 跳过元描述行，其余全部注入
+        # V4 Prompt 注入链路修复（2026-08-11）：
+        # - 删除 break：原只取第一条有效行，speaking_style 其余指令全部丢失
+        #   （Phase 1 Calibration、反文学化规则从未进入过 LLM）
+        # - "重点是"不再过滤：其后的内容（"你回应的是对方实际说出的内容"）
+        #   是真正的人格规则，不是元描述
+        # - 截断 50 → 120：长行不被截断，仍保留极端长度防护
         if self.speaking_style:
             style_lines = self.speaking_style.strip().split("\n")
             for sl in style_lines:
                 s = sl.strip()
                 if not s:
                     continue
-                # 跳过元指令行
-                if any(kw in s for kw in ["这是你的说话方式", "不是你当前", "重点是", "不是描述自己"]):
+                # 只跳过元描述行（对 LLM 无指令价值的说明性文字）
+                if any(kw in s for kw in ["这是你的说话方式", "不是你当前", "不是描述自己"]):
                     continue
-                if len(s) > 50:
-                    s = s[:50]
+                if len(s) > 120:
+                    s = s[:120]
                 lines.append(f"{s.rstrip('。')}。")
-                break  # 只取第一条有效行
 
         return "\n".join(lines)
 
