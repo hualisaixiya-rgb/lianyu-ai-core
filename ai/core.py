@@ -15,7 +15,7 @@ from loguru import logger
 
 from ai.background_tasks import BackgroundTasks, _create_background_task
 from ai.identity import IdentityFlow
-from ai.intent import Intent, detect_intent
+from ai.intent import Intent, detect_emotion_state, detect_intent
 from ai.message_formatter import format_user_message
 from ai.prompt_builder import PromptBuilder, PromptContext
 from ai.providers.openai_compatible import OpenAICompatibleProvider
@@ -222,6 +222,10 @@ class AICore:
             f"intent={intent.name}"
         )
 
+        # 6.4. Emotion Regulation：当前用户消息级情绪强度检测
+        # （V4 Emotion Regulation Layer，纯规则零 Token；仅当前消息，不引入会话级情绪）
+        emotion_state = detect_emotion_state(context.message)
+
         # Pending Resolution：有 pending + 消息像确认 → 消费 pending（Step 6a 同步，6a→7 红线）
         if await self.identity_flow.has_pending(
             context.platform, context.platform_user_id
@@ -308,6 +312,7 @@ class AICore:
             intent=intent,
             world_state=session.world_state,
             active_topics=session.active_topics,
+            emotion_level=emotion_state.level,
         )
 
         # 8. 调用 LLM
@@ -472,6 +477,7 @@ class AICore:
         intent: Intent | None = None,
         world_state: WorldState | None = None,
         active_topics: ActiveTopics | None = None,
+        emotion_level: int = 0,
     ) -> PromptContext:
         """组装 PromptContext。
 
@@ -494,6 +500,7 @@ class AICore:
             emotion_trend=emotion_trend,
             world_state=world_state,
             active_topics=active_topics,
+            emotion_level=emotion_level,
         )
 
     def _build_system_prompt(
@@ -508,6 +515,7 @@ class AICore:
         intent: Intent | None = None,
         world_state: WorldState | None = None,
         active_topics: ActiveTopics | None = None,
+        emotion_level: int = 0,
     ) -> str:
         """构建完整的 System Prompt（V3 选择性注入）。
 

@@ -10,6 +10,36 @@ from dataclasses import dataclass
 
 from ai.world_tracker import get_time_context
 
+# ----------------------------------------------------------------
+# V4 Emotion Regulation：情绪场景块（Prompt 层，2026-08-11）
+# 设计依据见 docs/design/V4_emotion_regulation_layer.md §7/§8：
+# - 数字结构约束 > 风格禁令（A/B 实验教训）
+# - 零示例输出（B 实验教训：示例 = 新模板源）
+# - 禁令 ≤2 条（Phase 1b 教训：禁令列表越长反弹越强）
+# ----------------------------------------------------------------
+
+# L2 高情绪场景块
+HEAVY_SCENE_BLOCK = (
+    "当前场景：对方正处于强烈情绪中。\n"
+    "第一句必须回应对方刚说出的内容本身。\n"
+    "整个回复不超过两句话，不换行。\n"
+    "不用比喻，不描述画面。"
+)
+
+# L3 危机场景块（覆盖 L2，不叠加）：朴素陪伴授权，不美化痛苦、不承诺永远
+CRISIS_SCENE_BLOCK = (
+    "当前场景：对方情绪非常糟糕。\n"
+    "第一句先回应他/她刚说的话。\n"
+    "陪伴用最朴素的话，一句话就够。\n"
+    "不要美化痛苦，不要承诺永远。"
+)
+
+# 档位 → 场景块映射（仅 L2/L3；L0/L1 无注入，prompt 与基线逐字节一致）
+_EMOTION_SCENE_BLOCKS = {
+    2: HEAVY_SCENE_BLOCK,
+    3: CRISIS_SCENE_BLOCK,
+}
+
 
 @dataclass
 class PromptContext:
@@ -32,6 +62,9 @@ class PromptContext:
     timeline_context: str = ""
     relationship_memory_context: str = ""
     emotion_trend: str = ""
+    # V4 Emotion Regulation：情绪强度档（0~3，来自 detect_emotion_state；
+    # 数据层字段——场景注入文本由 build() 按档位查表生成，模板零修改）
+    emotion_level: int = 0
     # world_state / active_topics 为对象（保持原逻辑：is_empty 判断 + to_prompt 转换）
     world_state: object | None = None
     active_topics: object | None = None
@@ -95,7 +128,7 @@ class PromptBuilder:
         if ctx.active_topics and not ctx.active_topics.is_empty():
             topics_block = ctx.active_topics.to_prompt()
 
-        return self.prompt_manager.render(
+        system_prompt = self.prompt_manager.render(
             "system",
             identity=identity,
             current_time=time_context,
@@ -110,3 +143,8 @@ class PromptBuilder:
             world_state_context=world_state_block,
             active_topics_context=topics_block,
         )
+        # V4 Emotion Regulation：L2/L3 追加场景块（Python 层，模板零修改）。
+        # L0/L1 不触发 → prompt 与 885bb60 基线逐字节一致。
+        if ctx.emotion_level in _EMOTION_SCENE_BLOCKS:
+            system_prompt += "\n\n" + _EMOTION_SCENE_BLOCKS[ctx.emotion_level]
+        return system_prompt
