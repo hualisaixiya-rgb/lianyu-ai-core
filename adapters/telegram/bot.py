@@ -45,7 +45,9 @@ class TelegramBot:
 
         使用显式 HTTPXRequest 配置：
         - 超时从默认 5s 提升到 15~30s（适应代理链路延迟）
-        - 连接池从默认 256 降到 8（避免代理断开后复用死连接）
+        - get_updates 和普通 API 使用独立 HTTPXRequest（PTB 推荐架构）
+        - get_updates: pool_size=1（长轮询一次只需一个连接）
+        - 普通 API: pool_size=8（handler 内 reply_text/send_chat_action）
 
         Returns:
             配置好的 Application 实例
@@ -56,23 +58,31 @@ class TelegramBot:
                 "Telegram Bot Token 未配置。请设置环境变量 TELEGRAM_BOT_TOKEN。"
             )
 
-        # 构建自定义 HTTPXRequest（替代 builder.proxy() 的默认配置）
-        request_kwargs = {}
         proxy_url = self.settings.telegram.proxy
         if proxy_url:
-            request_kwargs["proxy"] = proxy_url
             logger.info(f"Telegram 使用代理: {proxy_url}")
 
-        request = HTTPXRequest(
-            connection_pool_size=8,       # 默认 256 → 8，减少代理死连接命中
-            connect_timeout=15.0,          # 默认 5s → 15s，代理链路需要更长时间
-            read_timeout=30.0,             # 默认 5s → 30s，Telegram API 可能延迟
-            write_timeout=15.0,            # 默认 5s → 15s
-            pool_timeout=5.0,              # 默认 1s → 5s
-            **request_kwargs,
+        # get_updates 专用 request — 长轮询连接池独立
+        get_updates_request = HTTPXRequest(
+            connection_pool_size=1,       # 长轮询一次只需一个连接
+            connect_timeout=15.0,
+            read_timeout=30.0,
+            write_timeout=15.0,
+            pool_timeout=5.0,
+            proxy=proxy_url or None,
         )
 
-        bot = Bot(token=token, request=request)
+        # 普通 API 请求 — 短连接，独立池
+        request = HTTPXRequest(
+            connection_pool_size=8,
+            connect_timeout=15.0,
+            read_timeout=30.0,
+            write_timeout=15.0,
+            pool_timeout=5.0,
+            proxy=proxy_url or None,
+        )
+
+        bot = Bot(token=token, request=request, get_updates_request=get_updates_request)
         app = Application.builder().bot(bot).build()
 
         # 注册命令处理器
