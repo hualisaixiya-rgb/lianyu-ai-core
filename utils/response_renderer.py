@@ -97,7 +97,7 @@ def render_for_storage(text: str) -> str:
     text = re.sub(r"（[^）]*）", "", text)
     text = re.sub(r"\([^)]*\)", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    text = normalize_ellipsis_prefix(text)
+    text = normalize_ellipsis_prefix(text, max_prefix=1)
     text = collapse_lines(text, _STORAGE_MAX_LINES)
     text = dedup_adjacent_sentences(text)
     return text.strip()

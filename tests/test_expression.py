@@ -88,6 +88,11 @@ def test_render_for_storage_sanitizes_drift():
     assert render_for_storage("我爱你。我爱你。") == "我爱你。"
 
 
+def test_render_for_storage_sanitizes_per_line_ellipsis():
+    """R2：storage 层将每行句首省略号收敛为整条仅保留 1 次（打破 per-line 自强化）。"""
+    assert render_for_storage("……早上好。\n……你睡得好吗？") == "……早上好。\n你睡得好吗？"
+
+
 # ----------------------------------------------------------------
 # 非空保证
 # ----------------------------------------------------------------
